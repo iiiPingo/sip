@@ -97,7 +97,7 @@ namespace Echoa
 
             panel = new EchoaPanel(this);
             panel.VisibleChanged += (o, e) => Safe(PanelVisibility);
-            menu = new ContextMenuStrip { Renderer = new DarkRenderer(), Font = Theme.Ui(9.5f), ShowImageMargin = true };
+            menu = Menus.Make(Theme.Ui(9.5f));
             menu.Closed += (o, e) => ReleasePanel();
 
             engine = new Engine(this, ui) { IconPx = panel.IconPx };
@@ -490,7 +490,7 @@ namespace Echoa
 
         ContextMenuStrip TempMenu()
         {
-            var m = new ContextMenuStrip { Renderer = new DarkRenderer(), Font = menu.Font, ShowImageMargin = true };
+            var m = Menus.Make(menu.Font);
             m.Closed += (o, e) => { ReleasePanel(); ui.Post(_ => { try { m.Dispose(); } catch { } }, null); };
             return m;
         }

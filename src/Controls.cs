@@ -182,7 +182,7 @@ namespace Echoa
             if (!Enabled || Items.Count == 0 || DroppedDown) return;
             Focus();
             menu?.Dispose();
-            menu = new ContextMenuStrip { Renderer = new DarkRenderer(), Font = Font, ShowImageMargin = true, ShowCheckMargin = false };
+            menu = Menus.Make(Font);
             for (int i = 0; i < Items.Count; i++)
             {
                 int k = i;

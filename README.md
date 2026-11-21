@@ -20,7 +20,7 @@ EarTrumpet couldn't change the Windows default output, its device list was huge,
 - No hotkeys, no background polling while the flyout is closed, never crashes the session (errors go to `crash.log`).
 
 ## Install
-1. Download `Echoa-1.6.zip` from [Releases](../../releases/latest) and unzip it into its own folder.
+1. Download `Echoa-1.6.1.zip` from [Releases](../../releases/latest) and unzip it into its own folder.
 2. Run `Echoa.exe`. If SmartScreen warns, click **More info > Run anyway** (the exe is unsigned).
 
 Runs on Windows 10/11 with .NET Framework 4.8, which is already built in. Nothing to install.

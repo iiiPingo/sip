@@ -273,9 +273,66 @@ namespace Echoa
         public override Color CheckPressedBackground => Hi;
     }
 
+    static class Menus
+    {
+        // Windows 11 can round any popup itself; Windows 10 keeps the square menu
+        public static readonly bool Win11 = Environment.OSVersion.Version.Major >= 10 && Environment.OSVersion.Version.Build >= 22000;
+
+        public static ContextMenuStrip Make(Font font)
+        {
+            var m = new ContextMenuStrip { Renderer = new DarkRenderer(), Font = font, ShowImageMargin = true, ShowCheckMargin = false };
+            m.Padding = new Padding(4, 5, 4, 5);
+            if (Win11)
+            {
+                m.DropShadowEnabled = false;          // the old square shadow; DWM draws a rounded one
+                m.HandleCreated += (o, e) => Round(m.Handle);
+                m.Opened += (o, e) => Round(m.Handle);
+            }
+            return m;
+        }
+
+        static void Round(IntPtr h)
+        {
+            try
+            {
+                int round = 2; Native.DwmSetWindowAttribute(h, 33, ref round, 4);        // rounded corners
+                int border = Theme.Border.R | (Theme.Border.G << 8) | (Theme.Border.B << 16);
+                Native.DwmSetWindowAttribute(h, 34, ref border, 4);                      // thin border in our grey
+            }
+            catch { }
+        }
+    }
+
     class DarkRenderer : ToolStripProfessionalRenderer
     {
         public DarkRenderer() : base(new DarkColors()) { RoundedEdges = false; }
+
+        // on Windows 11 the window itself is rounded with a DWM border, so skip the square one
+        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+        {
+            if (Menus.Win11 && e.ToolStrip is ToolStripDropDown) return;
+            base.OnRenderToolStripBorder(e);
+        }
+
+        // hover: a rounded pill inset from the edges, like Windows 11 menus
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+        {
+            if (!(e.ToolStrip is ToolStripDropDown) || !e.Item.Selected || !e.Item.Enabled) { if (!(e.ToolStrip is ToolStripDropDown)) base.OnRenderMenuItemBackground(e); return; }
+            var g = e.Graphics;
+            var r = new Rectangle(2, 1, e.Item.Width - 4, e.Item.Height - 2);
+            var old = g.SmoothingMode;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            using (var b = new SolidBrush(Color.FromArgb(60, 60, 60)))
+            {
+                int d = 8;
+                path.AddArc(r.X, r.Y, d, d, 180, 90); path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+                path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+                path.CloseFigure();
+                g.FillPath(b, path);
+            }
+            g.SmoothingMode = old;
+        }
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
             e.TextColor = e.Item.Enabled ? (e.Item is ToolStripMenuItem mi && mi.ShortcutKeyDisplayString == e.Text ? Theme.Dim : Theme.Text) : Theme.Dim;
