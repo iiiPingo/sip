@@ -33,7 +33,7 @@ cd src
 dotnet build -c Release
 ```
 On Windows this uses the .NET Framework 4.8 reference assemblies; on Linux it builds against Mono's (`mono-devel`).
-`logo/make_ico.py` regenerates `sip.ico`.
+The logo scripts live in the Minibar project notes; `src/echoa.ico` is the built icon.
 
 ## How it works
 C# WinForms on .NET Framework 4.8. Core Audio through COM (`IMMDeviceEnumerator`, `IAudioSessionManager2`, `IPolicyConfig` for the default device), all on one MTA worker thread. Its own `Shell_NotifyIcon` tray icon, and raw WinRT calls to the Global System Media Transport Controls for Now playing.
