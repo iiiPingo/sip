@@ -2,8 +2,8 @@ using System;
 using System.Runtime.InteropServices;
 
 // Core Audio COM interop (MMDevice API, endpoint volume, session manager, IPolicyConfig).
-// Every method of each interface is declared in vtable order, including ones Sip never calls.
-namespace Sip.CoreAudio
+// Every method of each interface is declared in vtable order, including ones Echoa never calls.
+namespace Echoa.CoreAudio
 {
     public enum EDataFlow { Render = 0, Capture = 1, All = 2 }
     public enum ERole { Console = 0, Multimedia = 1, Communications = 2 }
@@ -249,12 +249,32 @@ namespace Sip.CoreAudio
         [PreserveSig] int ReleaseBuffer(int frames, int flags);
     }
 
+    [ComImport, Guid("C8ADBD64-E71E-48a0-A4DE-185C395CD317"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioCaptureClient
+    {
+        [PreserveSig] int GetBuffer(out IntPtr data, out int frames, out int flags, out long devicePosition, out long qpcPosition);
+        [PreserveSig] int ReleaseBuffer(int frames);
+        [PreserveSig] int GetNextPacketSize(out int frames);
+    }
+
+    // peak level of an endpoint (0..1); a microphone only has a level while something is capturing from it
+    [ComImport, Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioMeterInformation
+    {
+        [PreserveSig] int GetPeakValue(out float peak);
+        [PreserveSig] int GetMeteringChannelCount(out int count);
+        [PreserveSig] int GetChannelsPeakValues(int count, [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 0)] float[] peaks);
+        [PreserveSig] int QueryHardwareSupport(out int mask);
+    }
+
     public static class Iids
     {
         public static Guid EndpointVolume = typeof(IAudioEndpointVolume).GUID;
         public static Guid SessionManager2 = typeof(IAudioSessionManager2).GUID;
         public static Guid AudioClient = typeof(IAudioClient).GUID;
         public static Guid RenderClient = typeof(IAudioRenderClient).GUID;
+        public static Guid CaptureClient = typeof(IAudioCaptureClient).GUID;
+        public static Guid Meter = typeof(IAudioMeterInformation).GUID;
         public const int CLSCTX_ALL = 23;
     }
 

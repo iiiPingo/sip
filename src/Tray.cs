@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace Sip
+namespace Echoa
 {
     // Our own notification-area icon (Shell_NotifyIcon, version 4), so we can get the icon's rectangle
     // for scroll-to-change-volume, keyboard selection (Win+B, Enter) and re-adding after Explorer restarts.
@@ -19,7 +19,7 @@ namespace Sip
         public Action<Message> OtherMessage;      // single-instance "show" etc.
 
         Icon icon;
-        string tip = "Sip";
+        string tip = "Echoa";
         bool added, rawOn;
         Rectangle iconRect;
         int wheelAcc;
@@ -28,7 +28,7 @@ namespace Sip
         public TrayIcon()
         {
             // a hidden top-level window: receives the TaskbarCreated broadcast and raw input
-            CreateHandle(new CreateParams { Caption = "SipTrayWindow", ExStyle = 0x80 /* WS_EX_TOOLWINDOW */ });
+            CreateHandle(new CreateParams { Caption = "EchoaTrayWindow", ExStyle = 0x80 /* WS_EX_TOOLWINDOW */ });
         }
 
         Native.NOTIFYICONDATA Data(int flags) => new Native.NOTIFYICONDATA
@@ -177,12 +177,12 @@ namespace Sip
     }
 }
 
-namespace Sip
+namespace Echoa
 {
     // Windows 11 drops every new tray icon into the ^ overflow. It keeps one registry entry per icon
     // (HKCU\Control Panel\NotifyIconSettings\<id>: ExecutablePath, IsPromoted). Undocumented but stable since 22H2.
-    // Sip turns IsPromoted on for itself only while that value doesn't exist yet: once you've moved
-    // the icon yourself, Windows has written your choice and Sip never touches it again.
+    // Echoa turns IsPromoted on for itself only while that value doesn't exist yet: once you've moved
+    // the icon yourself, Windows has written your choice and Echoa never touches it again.
     static class TrayPromote
     {
         static System.Windows.Forms.Timer timer;

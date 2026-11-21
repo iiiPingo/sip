@@ -1,10 +1,12 @@
-<p align="center"><img src="docs/logo.png" width="96" alt="Sip logo"></p>
-<h1 align="center">Sip</h1>
+<p align="center"><img src="docs/logo.png" width="96" alt="Echoa logo"></p>
+<h1 align="center">Echoa</h1>
 <p align="center">A small, fast volume mixer for the Windows tray. A cleaner take on EarTrumpet.</p>
 <p align="center"><a href="../../releases/latest"><b>Download the latest release</b></a></p>
 
+Formerly called **Sip** (renamed in 1.4). Your old Sip settings are copied over the first time Echoa starts.
+
 ## Why
-EarTrumpet couldn't change the Windows default output, its device list was huge, and a headset kept stealing the default whenever it connected. Sip fixes all three.
+EarTrumpet couldn't change the Windows default output, its device list was huge, and a headset kept stealing the default whenever it connected. Echoa fixes all three.
 
 ## Features
 - **One click to switch output.** Click a device to make it the Windows default (console, multimedia and communications).
@@ -18,12 +20,12 @@ EarTrumpet couldn't change the Windows default output, its device list was huge,
 - No hotkeys, no background polling while the flyout is closed, never crashes the session (errors go to `crash.log`).
 
 ## Install
-1. Download `Sip-1.3.zip` from [Releases](../../releases/latest) and unzip it into its own folder.
-2. Run `Sip.exe`. If SmartScreen warns, click **More info > Run anyway** (the exe is unsigned).
+1. Download `Echoa-1.6.zip` from [Releases](../../releases/latest) and unzip it into its own folder.
+2. Run `Echoa.exe`. If SmartScreen warns, click **More info > Run anyway** (the exe is unsigned).
 
 Runs on Windows 10/11 with .NET Framework 4.8, which is already built in. Nothing to install.
 
-Settings live in `%APPDATA%\Sip\settings.ini`.
+Settings live in `%APPDATA%\Echoa\settings.ini`.
 
 ## Build
 ```

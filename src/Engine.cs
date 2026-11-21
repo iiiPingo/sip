@@ -7,15 +7,15 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
-using Sip.CoreAudio;
+using Echoa.CoreAudio;
 
-namespace Sip
+namespace Echoa
 {
     // Owns every Core Audio object on one MTA thread. Windows calls our callbacks on its own threads;
     // they only copy values and queue work here. Results go to the UI through the sink, posted.
     class Engine : IDisposable
     {
-        public static Guid Ctx = new Guid("5a1c0de5-5195-4e1f-9a7e-51b0c0ffee01");   // tags changes Sip makes itself
+        public static Guid Ctx = new Guid("5a1c0de5-5195-4e1f-9a7e-51b0c0ffee01");   // tags changes Echoa makes itself
 
         // settings the UI shares with us (thread-safe)
         public volatile bool AppMemoryOn = true, DeviceMemoryOn = true, BlockSteal = true;
@@ -56,7 +56,7 @@ namespace Sip
         {
             this.sink = sink;
             this.ui = ui;
-            thread = new Thread(Run) { IsBackground = true, Name = "SipAudio" };
+            thread = new Thread(Run) { IsBackground = true, Name = "EchoaAudio" };
             thread.SetApartmentState(ApartmentState.MTA);
         }
 
@@ -366,7 +366,7 @@ namespace Sip
                     c2.GetProcessId(out int pid);
                     bool system = c2.IsSystemSoundsSession() == 0;
                     if (!system && pid != 0 && !Native.ProcessAlive(pid)) continue;
-                    if (pid == MyPid) continue;   // Sip's own test sound
+                    if (pid == MyPid) continue;   // Echoa's own test sound
                     seen.Add(iid);
                     if (d.Sessions.ContainsKey(iid)) continue;
 
@@ -657,7 +657,7 @@ namespace Sip
         }
         public void OnPropertyValueChanged(string id, PropertyKey key)
         {
-            try { if (id != null && (key.Is(Sip.CoreAudio.Keys.FriendlyName) || key.Is(Sip.CoreAudio.Keys.DeviceDesc))) e.PropsChanged(id); } catch { }
+            try { if (id != null && (key.Is(Echoa.CoreAudio.Keys.FriendlyName) || key.Is(Echoa.CoreAudio.Keys.DeviceDesc))) e.PropsChanged(id); } catch { }
         }
     }
 

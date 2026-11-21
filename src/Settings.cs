@@ -7,7 +7,7 @@ using System.Text;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace Sip
+namespace Echoa
 {
     class DevPrefs
     {
@@ -25,7 +25,7 @@ namespace Sip
 
     class Settings
     {
-        public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sip");
+        public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Echoa");
         static string FilePath => Path.Combine(Dir, "settings.ini");
 
         public bool VolumeMemory = true;
@@ -37,8 +37,9 @@ namespace Sip
         public bool CapsOn = false;      // volume limits (set per device)
         public bool RampOn = false;      // gentle ramp-up when switching to headphones
         public bool NowPlaying = true;   // "Now playing" strip in the flyout
-        public string Accent = "";       // accent colour (#RRGGBB); empty = Sip blue
+        public string Accent = "";       // accent colour (#RRGGBB); empty = Echoa cocoa
         public bool SimpleFlyout;        // flyout shows only the main output and its apps
+        public bool MicFooter = true;    // mic mute + level test in the flyout footer
         public int WinX, WinY, WinW, WinH;   // main window bounds (W/H negative = maximized; 0 = default)
         public readonly Dictionary<string, DevPrefs> Devices = new Dictionary<string, DevPrefs>(StringComparer.OrdinalIgnoreCase);
         public readonly Dictionary<string, float> AppVolumes = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
@@ -53,7 +54,33 @@ namespace Sip
             return p;
         }
 
-        public static Settings Load() => Parse(File.Exists(FilePath) ? SafeRead() : null);
+        public static Settings Load()
+        {
+            MigrateFromSip();
+            return Parse(File.Exists(FilePath) ? SafeRead() : null);
+        }
+
+        // Echoa used to be called Sip: bring its settings over once, and move "start with Windows" to the new name
+        static void MigrateFromSip()
+        {
+            try
+            {
+                string oldDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sip");
+                string oldFile = Path.Combine(oldDir, "settings.ini");
+                if (File.Exists(FilePath) || !File.Exists(oldFile)) return;
+                Directory.CreateDirectory(Dir);
+                File.Copy(oldFile, FilePath);
+                using (var k = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                {
+                    if (k?.GetValue("Sip") is string run && run.IndexOf("Sip.exe", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        k.DeleteValue("Sip", false);
+                        k.SetValue("Echoa", "\"" + Application.ExecutablePath + "\"");
+                    }
+                }
+            }
+            catch { }
+        }
 
         static string[] SafeRead() { try { return File.ReadAllLines(FilePath, Encoding.UTF8); } catch { return new string[0]; } }
 
@@ -85,6 +112,7 @@ namespace Sip
                             case "nowplaying": s.NowPlaying = v != "0"; break;
                             case "accent": s.Accent = v; break;
                             case "simpleflyout": s.SimpleFlyout = v == "1"; break;
+                            case "micfooter": s.MicFooter = v != "0"; break;
                             case "window":
                                 var wv = v.Split(',');
                                 if (wv.Length == 4 && int.TryParse(wv[0], out int wx) && int.TryParse(wv[1], out int wy) && int.TryParse(wv[2], out int ww) && int.TryParse(wv[3], out int wh))
@@ -124,7 +152,7 @@ namespace Sip
         {
             var l = new List<string>
             {
-                "; Sip settings. Sip rewrites this file; edit it while Sip is closed.",
+                "; Echoa settings. Echoa rewrites this file; edit it while Echoa is closed.",
                 "volumememory=" + B(VolumeMemory),
                 "appmemory=" + B(AppMemory),
                 "scrolltray=" + B(ScrollTray),
@@ -136,6 +164,7 @@ namespace Sip
                 "nowplaying=" + B(NowPlaying),
                 "accent=" + Accent,
                 "simpleflyout=" + B(SimpleFlyout),
+                "micfooter=" + B(MicFooter),
                 "window=" + WinX + "," + WinY + "," + WinW + "," + WinH,
             };
             foreach (var kv in Devices.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
@@ -173,15 +202,15 @@ namespace Sip
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         public static bool StartWithWindows
         {
-            get { try { using (var k = Registry.CurrentUser.OpenSubKey(RunKey)) return k?.GetValue("Sip") != null; } catch { return false; } }
+            get { try { using (var k = Registry.CurrentUser.OpenSubKey(RunKey)) return k?.GetValue("Echoa") != null; } catch { return false; } }
             set
             {
                 try
                 {
                     using (var k = Registry.CurrentUser.CreateSubKey(RunKey))
                     {
-                        if (value) k.SetValue("Sip", "\"" + Application.ExecutablePath + "\"");
-                        else k.DeleteValue("Sip", false);
+                        if (value) k.SetValue("Echoa", "\"" + Application.ExecutablePath + "\"");
+                        else k.DeleteValue("Echoa", false);
                     }
                 }
                 catch { }

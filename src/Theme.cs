@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-namespace Sip
+namespace Echoa
 {
     static class Theme
     {
@@ -20,18 +20,20 @@ namespace Sip
         public static readonly Color ThumbOuter = Color.FromArgb(69, 69, 69);
         public static readonly Color ThumbEdge = Color.FromArgb(86, 86, 86);
 
-        // accent colour: the brand blue by default, changeable in Settings (the exe icon stays blue)
-        public static readonly Color DefaultAccent = Color.FromArgb(76, 168, 255);   // #4CA8FF
+        // accent colour: cocoa by default, changeable in Settings (the exe icon stays cocoa)
+        public static readonly Color DefaultAccent = Color.FromArgb(217, 154, 98);   // #D99A62
+        static readonly Color DefaultLogoA = Color.FromArgb(58, 30, 20), DefaultLogoB = Color.FromArgb(201, 138, 85);   // #3A1E14 -> #C98A55
         public static Color Accent { get; private set; } = DefaultAccent;
-        public static Color AccentHover { get; private set; } = Color.FromArgb(110, 186, 255);
-        public static Color AccentSoft { get; private set; } = Color.FromArgb(40, 76, 168, 255);
-        public static Color LogoA { get; private set; } = Color.FromArgb(27, 46, 158);   // #1B2E9E
-        public static Color LogoB { get; private set; } = Color.FromArgb(63, 184, 255);  // #3FB8FF
+        public static Color AccentHover { get; private set; } = Mix(DefaultAccent, Color.White, 0.22f);
+        public static Color AccentSoft { get; private set; } = Color.FromArgb(40, DefaultAccent);
+        public static Color LogoA { get; private set; } = DefaultLogoA;
+        public static Color LogoB { get; private set; } = DefaultLogoB;
 
         // Pour, Pulp, Fizz and Juice colours are in here too
         public static readonly Color[] Presets =
         {
-            DefaultAccent,                      // Sip blue
+            DefaultAccent,                      // Echoa cocoa
+            Color.FromArgb(76, 168, 255),       // blue
             Color.FromArgb(61, 219, 176),       // mint
             Color.FromArgb(95, 208, 104),       // Juice green
             Color.FromArgb(242, 193, 78),       // honey
@@ -49,10 +51,10 @@ namespace Sip
             if (c.ToArgb() == DefaultAccent.ToArgb())
             {
                 Accent = DefaultAccent;
-                AccentHover = Color.FromArgb(110, 186, 255);
-                AccentSoft = Color.FromArgb(40, 76, 168, 255);
-                LogoA = Color.FromArgb(27, 46, 158);
-                LogoB = Color.FromArgb(63, 184, 255);
+                AccentHover = Mix(DefaultAccent, Color.White, 0.22f);
+                AccentSoft = Color.FromArgb(40, DefaultAccent);
+                LogoA = DefaultLogoA;
+                LogoB = DefaultLogoB;
                 return;
             }
             Accent = c;
@@ -154,12 +156,33 @@ namespace Sip
             return pts;
         }
 
+        // ---------------------------------------------------------------- logo: cocoa bean + two sound waves (Ripple)
         public static void DrawGlyph(Graphics g, RectangleF r, Color c, bool small)
         {
-            float n = r.Width;
-            using (var b = new SolidBrush(c)) g.FillPolygon(b, Drop(r.X + 0.37f * n, r.Y + 0.24f * n, 0.52f * n));
-            float cx = r.X + 0.37f * n, cy = r.Y + 0.58f * n, w = (small ? 0.07f : 0.055f) * n;
-            using (var pen = new Pen(c, w) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            float n = r.Width, cx = r.X + 0.37f * n, cy = r.Y + 0.52f * n;
+            float h = (small ? 0.50f : 0.46f) * n, w = h * 0.66f;
+            using (var bean = new GraphicsPath())
+            using (var groove = new GraphicsPath())
+            using (var cut = new Pen(Color.Black, Math.Max(1f, h * 0.075f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+            {
+                bean.AddEllipse(cx - w / 2, cy - h / 2, w, h);
+                var pts = new PointF[41];
+                for (int i = 0; i <= 40; i++)
+                {
+                    double t = i / 40.0;
+                    pts[i] = new PointF(cx + (float)(Math.Sin((t - 0.5) * Math.PI * 1.6) * w * 0.10), cy - h * 0.40f + (float)t * h * 0.80f);
+                }
+                groove.AddLines(pts);
+                groove.Widen(cut);
+                using (var region = new Region(bean))
+                using (var b = new SolidBrush(c))
+                {
+                    region.Exclude(groove);
+                    g.FillRegion(b, region);
+                }
+            }
+            float lw = (small ? 0.07f : 0.055f) * n;
+            using (var pen = new Pen(c, lw) { StartCap = LineCap.Round, EndCap = LineCap.Round })
                 foreach (float rr in small ? new[] { 0.29f } : new[] { 0.25f, 0.37f })
                 {
                     float R = rr * n;

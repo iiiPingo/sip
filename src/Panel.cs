@@ -7,7 +7,7 @@ using System.Drawing.Text;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace Sip
+namespace Echoa
 {
     interface IPanelHost
     {
@@ -25,9 +25,18 @@ namespace Sip
         float CapOf(string id);
         void ShowDeviceMenu(DevSnap d, Point screen);
         void ShowAppMenu(DevSnap d, AppSnap a, Point screen);
+        // mic area in the footer
+        bool MicOn { get; }
+        DevSnap Mic { get; }            // the default microphone (null = none)
+        void MicMute();
+        bool MicTesting { get; }
+        bool MicTestFailed { get; }
+        float MicLevel { get; }         // raw peak 0..1 while testing
+        void MicTest(bool on);
+        void SetDefaultInput(string id);
     }
 
-    class SipPanel : Form
+    class EchoaPanel : Form
     {
         enum RK { Device, App, Empty }
 
@@ -57,6 +66,9 @@ namespace Sip
         bool focusVisible, anchorBottom = true;
         Drag drag;
         int scroll, contentH, viewH;
+        // smooth scrolling: the wheel moves scrollGoal, scrollAnim eases the list toward it (~60 fps)
+        float scrollPos, scrollGoal;
+        readonly Timer scrollAnim = new Timer { Interval = 15 };
         DateTime animStart;
         int animTarget, animFrom;
         public bool SuppressHide;
@@ -79,7 +91,7 @@ namespace Sip
         int ListTop => TopPad + NpH;
         Rectangle NpRect => new Rectangle(Pad, TopPad, W - Pad * 2, S(54));
 
-        public SipPanel(IPanelHost h)
+        public EchoaPanel(IPanelHost h)
         {
             host = h;
             FormBorderStyle = FormBorderStyle.None;
@@ -88,7 +100,7 @@ namespace Sip
             StartPosition = FormStartPosition.Manual;
             AutoScaleMode = AutoScaleMode.None;
             BackColor = Theme.Bg;
-            Text = "Sip";
+            Text = "Echoa";
             KeyPreview = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
 
@@ -103,6 +115,14 @@ namespace Sip
             fIconSmall = new Font(Theme.IconFont, 11f);
             fIconTiny = new Font(Theme.IconFont, 6.5f);
 
+            scrollAnim.Tick += (o, e) =>
+            {
+                float d = scrollGoal - scrollPos;
+                if (Math.Abs(d) < 0.6f) { scrollPos = scrollGoal; scrollAnim.Stop(); }
+                else scrollPos += d * 0.3f;
+                int y = (int)Math.Round(scrollPos);
+                if (y != scroll) { scroll = y; Relayout(); Update(); }
+            };
             anim = new Timer { Interval = 10 };
             anim.Tick += (o, e) => AnimTick();
 
@@ -217,8 +237,10 @@ namespace Sip
             int maxView = Math.Max(S(120), wa.Height - S(24) - ListTop - FooterH);
             viewH = Math.Min(contentH, maxView);
             scroll = Math.Max(0, Math.Min(scroll, contentH - viewH));
+            if (!scrollAnim.Enabled) scrollGoal = scrollPos = scroll;   // jumps (keyboard, reopen) don't glide
             PlaceParts(ListTop - scroll);
             int h = ListTop + viewH + S(6) + FooterH;
+            if (picking) h = Math.Max(h, FooterH + PickH + S(16));
             if (Height != h || Width != W)
             {
                 if (Visible && anchorBottom && !anim.Enabled) { int bottom = Bottom; Size = new Size(W, h); Top = bottom - h; }
@@ -276,6 +298,7 @@ namespace Sip
             LastHidden = DateTime.UtcNow;
             peeked.Clear();
             hover = null;
+            picking = false;
         }
 
         protected override void OnDeactivate(EventArgs e)
@@ -344,11 +367,126 @@ namespace Sip
             // footer
             int fy = Height - FooterH;
             using (var p = new Pen(Theme.Border, Math.Max(1, s))) g.DrawLine(p, 0, fy, W, fy);
-            Theme.DrawLogo(g, new RectangleF(Pad + S(10), fy + (FooterH - S(18)) / 2f, S(18), S(18)));
-            TextRenderer.DrawText(g, "Sip", fFooter, new Rectangle(Pad + S(36), fy, S(80), FooterH), Theme.Sub, L);
+            if (!host.MicOn)
+            {
+                Theme.DrawLogo(g, new RectangleF(Pad + S(10), fy + (FooterH - S(18)) / 2f, S(18), S(18)));
+                TextRenderer.DrawText(g, "Echoa", fFooter, new Rectangle(Pad + S(36), fy, S(80), FooterH), Theme.Sub, L);
+            }
             var gear = new Rectangle(W - Pad - S(36), fy + (FooterH - S(32)) / 2, S(32), S(32));
             if (Hov("gear#")) Theme.Fill(g, gear, Theme.CardHover, S(6));
             TextRenderer.DrawText(g, Theme.GSettings, fIconSmall, gear, Hov("gear#") ? Theme.Text : Theme.Sub, C);
+            if (host.MicOn) DrawMic(g);
+            if (picking) DrawPicker(g);
+        }
+
+        // ------------------------------------------------------------ mic area (footer): mute button, mic name (opens the picker) or live level, test
+        float micShown;   // smoothed level for the bar
+        bool picking;     // the mic picker is open
+        Rectangle MicBtn { get { int fy = Height - FooterH; return new Rectangle(Pad + S(2), fy + (FooterH - S(32)) / 2, S(32), S(32)); } }
+        Rectangle MicTestBtn { get { var gr = GearRect; return new Rectangle(gr.X - S(8) - S(50), Height - FooterH + (FooterH - S(26)) / 2, S(50), S(26)); } }
+        Rectangle MicInfo { get { var b = MicBtn; return Rectangle.FromLTRB(b.Right + S(4), b.Y, MicTestBtn.X - S(8), b.Bottom); } }
+
+        void DrawMic(Graphics g)
+        {
+            var mic = host.Mic;
+            var b = MicBtn;
+            bool muted = mic != null && mic.Muted, h = Hov("mic#") && mic != null;
+            // muted = lit up in the accent colour
+            if (muted) Theme.Fill(g, b, h ? Color.FromArgb(70, Theme.Accent) : Theme.AccentSoft, S(6));
+            else if (h) Theme.Fill(g, b, Theme.CardHover, S(6));
+            Color gc = mic == null ? Theme.Dim : muted ? Theme.Accent : h ? Theme.Text : Theme.Sub;
+            TextRenderer.DrawText(g, Theme.GMic, fIconSmall, b, gc, C);
+            if (muted)
+                using (var p = new Pen(Theme.Accent, Math.Max(1.6f, s * 1.6f)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                    g.DrawLine(p, b.X + S(9), b.Bottom - S(9), b.Right - S(9), b.Y + S(9));
+
+            var info = MicInfo;
+            bool ih = (Hov("micinfo#") || picking) && mic != null;
+            if (ih) Theme.Fill(g, info, picking ? Theme.Card : Theme.CardHover, S(6));
+            var inner = Rectangle.FromLTRB(info.X + S(8), info.Y, info.Right - S(24), info.Bottom);
+            if (host.MicTesting && mic != null)
+            {
+                if (host.MicTestFailed)
+                    TextRenderer.DrawText(g, "Can't open this mic", fSmall, inner, Theme.Dim, L);
+                else
+                {
+                    float th = Math.Max(3, S(5));
+                    var t = new RectangleF(inner.X, inner.Y + inner.Height / 2f - th / 2, Math.Max(1, inner.Width), th);
+                    Theme.Fill(g, t, Theme.Track, th / 2);
+                    float w = t.Width * Math.Max(0, Math.Min(1, micShown));
+                    if (w >= 1) Theme.Fill(g, new RectangleF(t.X, t.Y, Math.Max(th, w), th), muted ? Theme.Dim : Theme.Accent, th / 2);
+                    if (muted) TextRenderer.DrawText(g, "muted", fSmall, Rectangle.FromLTRB(inner.X, inner.Y, inner.Right, (int)t.Y - S(1)), Theme.Accent, C);
+                }
+            }
+            else
+                TextRenderer.DrawText(g, mic == null ? "No microphone" : mic.Name, fSmall, inner, ih ? Theme.Text : Theme.Sub, L);
+            if (mic != null || host.Snap.Inputs.Count > 0)   // chevron: the name opens the picker
+                TextRenderer.DrawText(g, picking ? GChevDown : GChevUp, fIconTiny, Rectangle.FromLTRB(info.Right - S(22), info.Y, info.Right - S(6), info.Bottom), ih ? Theme.Sub : Theme.Dim, C);
+
+            var tb = MicTestBtn;
+            bool on = host.MicTesting, th2 = Hov("mictest#") && mic != null;
+            Theme.Fill(g, tb, on ? Theme.AccentSoft : th2 ? Theme.CardHover : Theme.Field, tb.Height / 2f);
+            TextRenderer.DrawText(g, on ? "Stop" : "Test", fSmall, tb, mic == null ? Theme.Dim : on ? Theme.Accent : th2 ? Theme.Text : Theme.Sub, C);
+        }
+
+        const string GChevUp = "\uE70E", GChevDown = "\uE70D", GSettingsGlyph = "\uE713";
+
+        // ------------------------------------------------------------ mic picker: a small card above the footer, inside the flyout
+        int PickRowH => S(36);
+        int PickCount => Math.Max(1, host.Snap.Inputs.Count);
+        int PickH => S(6) + PickCount * PickRowH + S(9) + S(34) + S(6);   // rows, divider, "Microphone settings"
+        Rectangle PickRect { get { int bottom = Height - FooterH - S(4); return new Rectangle(Pad, bottom - PickH, W - Pad * 2, PickH); } }
+        Rectangle PickRow(int i) { var r = PickRect; return new Rectangle(r.X + S(4), r.Y + S(6) + i * PickRowH, r.Width - S(8), PickRowH); }
+        Rectangle PickSettings { get { var r = PickRect; return new Rectangle(r.X + S(4), r.Bottom - S(6) - S(34), r.Width - S(8), S(34)); } }
+
+        void OpenPicker(bool open)
+        {
+            if (picking == open) return;
+            picking = open;
+            hover = null;
+            Relayout();   // grows the flyout if the list needs the room
+        }
+
+        void DrawPicker(Graphics g)
+        {
+            var r = PickRect;
+            Theme.Fill(g, Rectangle.Inflate(r, S(3), S(3)), Color.FromArgb(70, 0, 0, 0), S(11));   // soft shadow
+            Theme.Fill(g, r, Theme.Card, S(9));
+            Theme.Stroke(g, r, Theme.Border, S(9), Math.Max(1, s));
+            var list = host.Snap.Inputs;
+            if (list.Count == 0)
+                TextRenderer.DrawText(g, "No microphones connected", fSmall, Rectangle.FromLTRB(PickRow(0).X + S(14), PickRow(0).Y, PickRow(0).Right, PickRow(0).Bottom), Theme.Dim, L);
+            for (int i = 0; i < list.Count; i++)
+            {
+                var d = list[i];
+                var row = PickRow(i);
+                bool def = d.Id == host.Snap.DefaultInputId, h = Hov("pick#" + i);
+                if (h) Theme.Fill(g, row, Theme.CardHover, S(6));
+                var dc = new PointF(row.X + S(14), row.Y + row.Height / 2f);
+                if (def) Theme.Disc(g, dc, S(4), Theme.Accent);
+                else using (var p = new Pen(h ? Theme.Sub : Theme.Dim, Math.Max(1, s))) g.DrawEllipse(p, dc.X - S(4), dc.Y - S(4), S(8), S(8));
+                TextRenderer.DrawText(g, Theme.GMic, fIconSmall, new Rectangle(row.X + S(26), row.Y, S(24), row.Height), def ? Theme.Accent : Theme.Sub, C);
+                TextRenderer.DrawText(g, d.Name, def ? fName : fBody, Rectangle.FromLTRB(row.X + S(56), row.Y, row.Right - (d.Muted ? S(62) : S(12)), row.Bottom), def || h ? Theme.Text : Theme.Sub, L);
+                if (d.Muted) TextRenderer.DrawText(g, "muted", fSmall, Rectangle.FromLTRB(row.Right - S(56), row.Y, row.Right - S(10), row.Bottom), Theme.Accent, R);
+            }
+            int dy = PickSettings.Y - S(5);
+            using (var p = new Pen(Theme.Border, Math.Max(1, s))) g.DrawLine(p, r.X + S(12), dy, r.Right - S(12), dy);
+            var sr = PickSettings;
+            bool sh = Hov("pick#settings");
+            if (sh) Theme.Fill(g, sr, Theme.CardHover, S(6));
+            TextRenderer.DrawText(g, GSettingsGlyph, fIconTiny, new Rectangle(sr.X + S(26), sr.Y, S(24), sr.Height), sh ? Theme.Text : Theme.Dim, C);
+            TextRenderer.DrawText(g, "Microphone settings", fSmall, Rectangle.FromLTRB(sr.X + S(56), sr.Y, sr.Right - S(10), sr.Bottom), sh ? Theme.Text : Theme.Sub, L);
+        }
+
+        // called ~30 times a second while a mic test runs
+        public void MicTick()
+        {
+            if (!Visible) return;
+            float p = host.MicTesting ? host.MicLevel : 0;
+            double db = 20 * Math.Log10(Math.Max(p, 1e-5));
+            float v = (float)Math.Max(0, Math.Min(1, (db + 54) / 54));   // -54 dB .. 0 dB
+            micShown = v > micShown ? v : Math.Max(v, micShown - 0.035f);  // quick rise, gentle fall
+            Invalidate(new Rectangle(0, Height - FooterH, W, FooterH));
         }
 
         Rectangle GearRect { get { int fy = Height - FooterH; return new Rectangle(W - Pad - S(36), fy + (FooterH - S(32)) / 2, S(32), S(32)); } }
@@ -506,7 +644,21 @@ namespace Sip
         string HitKey(Point p, out Row row)
         {
             row = null;
+            if (picking)
+            {
+                if (!PickRect.Contains(p)) return MicInfo.Contains(p) ? "micinfo#" : "pickout#";
+                for (int i = 0; i < host.Snap.Inputs.Count; i++) if (PickRow(i).Contains(p)) return "pick#" + i;
+                if (PickSettings.Contains(p)) return "pick#settings";
+                return "pick#";
+            }
             if (GearRect.Contains(p)) return "gear#";
+            if (host.MicOn && p.Y >= Height - FooterH)
+            {
+                if (MicBtn.Contains(p)) return "mic#";
+                if (Rectangle.Inflate(MicTestBtn, S(3), S(5)).Contains(p)) return "mictest#";
+                if (MicInfo.Contains(p)) return "micinfo#";
+                return null;
+            }
             if (npShown)
             {
                 var nr = NpRect;
@@ -537,6 +689,10 @@ namespace Sip
         bool Clickable(string key, Row r)
         {
             if (key == null) return false;
+            if (key == "pick#" || key == "pickout#") return false;
+            if (key.StartsWith("pick#")) return true;
+            if (key == "micinfo#") return host.Snap.Inputs.Count > 0 || host.Mic != null;
+            if (key.StartsWith("mic")) return host.Mic != null;
             if (key.EndsWith("#row")) return r != null && r.K == RK.Device && !r.Default;
             return true;
         }
@@ -588,12 +744,24 @@ namespace Sip
             if (k == null || k != pressKey) return;
             if (e.Button == MouseButtons.Right)
             {
+                if (k.StartsWith("mic") || k.StartsWith("pick")) return;
                 if (row?.K == RK.Device) host.ShowDeviceMenu(row.D, PointToScreen(e.Location));
                 else if (row?.K == RK.App) host.ShowAppMenu(row.D, row.A, PointToScreen(e.Location));
                 return;
             }
             if (e.Button != MouseButtons.Left) return;
             if (k == "gear#") { host.OpenMain(null, null); return; }
+            if (k == "pickout#") { OpenPicker(false); return; }
+            if (k == "pick#settings") { OpenPicker(false); host.OpenMain("Inputs", null); return; }
+            if (k.StartsWith("pick#"))
+            {
+                if (int.TryParse(k.Substring(5), out int pi) && pi < host.Snap.Inputs.Count) host.SetDefaultInput(host.Snap.Inputs[pi].Id);
+                OpenPicker(false);
+                return;
+            }
+            if (k == "micinfo#") { OpenPicker(!picking); return; }
+            if (k == "mic#") { host.MicMute(); Invalidate(); return; }
+            if (k == "mictest#") { if (host.Mic != null) { micShown = 0; host.MicTest(!host.MicTesting); } Invalidate(); return; }
             if (k == "np#prev") { host.MediaCommand(2); return; }
             if (k == "np#play") { host.MediaCommand(0); if (host.Media != null) host.Media.Playing = !host.Media.Playing; Invalidate(); return; }
             if (k == "np#next") { host.MediaCommand(1); return; }
@@ -635,9 +803,15 @@ namespace Sip
             base.OnMouseWheel(e);
             int notches = e.Delta / 120;
             if (notches == 0) notches = Math.Sign(e.Delta);
+            if (picking) return;
             HitKey(e.Location, out var row);
             if (row != null && row.K != RK.Empty) { Nudge(row, notches * host.S.ScrollStep); return; }
-            if (contentH > viewH) { scroll -= notches * S(40); Relayout(); }
+            if (contentH > viewH)
+            {
+                // the real delta, so a touchpad scrolls by the pixel
+                scrollGoal = Math.Max(0, Math.Min(contentH - viewH, scrollGoal - e.Delta * S(40) / 120f));
+                if (!scrollAnim.Enabled) { scrollPos = scroll; scrollAnim.Start(); }
+            }
         }
 
         void Nudge(Row r, int pct)
@@ -658,6 +832,11 @@ namespace Sip
             int idx = focusables.FindIndex(r => r.Key == focusKey);
             Row cur = idx >= 0 ? focusables[idx] : null;
 
+            if (picking)
+            {
+                if (k == Keys.Escape) { OpenPicker(false); return true; }
+                if (k == Keys.Up || k == Keys.Down || k == Keys.Enter || k == Keys.Tab) return true;
+            }
             switch (k)
             {
                 case Keys.Escape: HidePanel(); return true;

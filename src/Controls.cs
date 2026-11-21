@@ -5,7 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace Sip
+namespace Echoa
 {
     // Small dark controls for the main window (same family as Pulp's settings window).
     static class Ux
@@ -19,10 +19,10 @@ namespace Sip
         public const TextFormatFlags C = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
     }
 
-    abstract class SipControl : Control
+    abstract class EchoaControl : Control
     {
         protected readonly float s;
-        protected SipControl(float scale)
+        protected EchoaControl(float scale)
         {
             s = scale;
             BackColor = Theme.Bg;
@@ -59,7 +59,7 @@ namespace Sip
         protected override void OnClick(EventArgs e) { base.OnClick(e); Box.Focus(); }
     }
 
-    class Toggle : SipControl
+    class Toggle : EchoaControl
     {
         bool on;
         public event Action Changed;
@@ -104,7 +104,7 @@ namespace Sip
         }
     }
 
-    class FlatBtn : SipControl
+    class FlatBtn : EchoaControl
     {
         public bool Primary;
         bool hover, down;
@@ -141,32 +141,91 @@ namespace Sip
         }
     }
 
-    // a dark drop-down list (owner drawn so it matches)
-    class DarkCombo : ComboBox
+    // a dark drop-down list: a rounded field with a chevron; the list opens as Echoa's dark menu
+    class DarkCombo : EchoaControl
     {
-        readonly float s;
-        public DarkCombo(float scale)
+        public readonly List<object> Items = new List<object>();
+        public event EventHandler SelectedIndexChanged;
+        int index = -1;
+        bool hover;
+        ContextMenuStrip menu;
+        readonly Font fIcon;
+
+        public DarkCombo(float scale) : base(scale)
         {
-            s = scale;
-            DropDownStyle = ComboBoxStyle.DropDownList;
-            FlatStyle = FlatStyle.Flat;
-            BackColor = Theme.Field;
-            ForeColor = Theme.Text;
             Font = Theme.Ui(10f);
-            DrawMode = DrawMode.OwnerDrawFixed;
-            ItemHeight = (int)Math.Round(24 * s);
-            IntegralHeight = false;
-            MaxDropDownItems = 12;
-            Ux.Dark(this);
+            fIcon = new Font(Theme.IconFont, 8f);
+            Height = S(34);
+            Cursor = Cursors.Hand;
+            SetStyle(ControlStyles.Selectable, true);
         }
-        protected override void OnDrawItem(DrawItemEventArgs e)
+
+        public bool DroppedDown => menu != null && menu.Visible;
+
+        public int SelectedIndex
         {
-            if (e.Index < 0) return;
-            bool sel = (e.State & DrawItemState.Selected) != 0;
-            using (var b = new SolidBrush(sel ? Theme.CardHover : Theme.Field)) e.Graphics.FillRectangle(b, e.Bounds);
-            var r = e.Bounds; r.X += (int)(8 * s); r.Width -= (int)(8 * s);
-            TextRenderer.DrawText(e.Graphics, Items[e.Index].ToString(), Font, r, Theme.Text, Ux.L);
+            get => index;
+            set
+            {
+                int v = value < -1 || value >= Items.Count ? -1 : value;
+                if (v == index) return;
+                index = v;
+                Invalidate();
+                SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
+            }
         }
+
+        public object SelectedItem => index >= 0 && index < Items.Count ? Items[index] : null;
+
+        void Open()
+        {
+            if (!Enabled || Items.Count == 0 || DroppedDown) return;
+            Focus();
+            menu?.Dispose();
+            menu = new ContextMenuStrip { Renderer = new DarkRenderer(), Font = Font, ShowImageMargin = true, ShowCheckMargin = false };
+            for (int i = 0; i < Items.Count; i++)
+            {
+                int k = i;
+                var it = new ToolStripMenuItem(Items[i].ToString()) { ForeColor = Theme.Text, Checked = i == index, AutoSize = false, Size = new Size(Width, S(32)) };
+                it.Click += (o, e) => SelectedIndex = k;
+                menu.Items.Add(it);
+            }
+            menu.Closed += (o, e) => Invalidate();
+            menu.Show(this, new Point(0, Height + S(4)));
+            Invalidate();
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hover = true; Invalidate(); }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hover = false; Invalidate(); }
+        protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if (e.Button == MouseButtons.Left) Open(); }
+        protected override bool IsInputKey(Keys k) => k == Keys.Up || k == Keys.Down || base.IsInputKey(k);
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (!Enabled) return;
+            if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter || (e.Alt && e.KeyCode == Keys.Down)) { Open(); e.Handled = true; }
+            else if (e.KeyCode == Keys.Down && index < Items.Count - 1) { SelectedIndex = index + 1; e.Handled = true; }
+            else if (e.KeyCode == Keys.Up && index > 0) { SelectedIndex = index - 1; e.Handled = true; }
+        }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(BackColor);
+            var r = new Rectangle(0, 0, Width - 1, Height - 1);
+            bool open = DroppedDown;
+            Theme.Fill(g, r, !Enabled ? Theme.CardSoft : hover || open ? Theme.CardHover : Theme.Field, S(6));
+            if (open || Focused) Theme.Stroke(g, r, open ? Theme.Accent : Theme.Sub, S(6), Math.Max(1, s));
+            string text = SelectedItem?.ToString() ?? "";
+            TextRenderer.DrawText(g, text, Font, new Rectangle(S(12), 0, Width - S(48), Height), Enabled ? Theme.Text : Theme.Dim, Ux.L);
+            TextRenderer.DrawText(g, "\uE70D", fIcon, new Rectangle(Width - S(34), 0, S(24), Height), Enabled ? Theme.Sub : Theme.Dim, Ux.C);   // ChevronDown
+        }
+
+        protected override void Dispose(bool disposing) { if (disposing) menu?.Dispose(); base.Dispose(disposing); }
     }
 
     class ComboItem
@@ -176,7 +235,7 @@ namespace Sip
     }
 
     // a single horizontal slider with its number; used for a device's volume limit
-    class CapSlider : SipControl
+    class CapSlider : EchoaControl
     {
         float val = 1f;
         bool hover, drag;
@@ -234,12 +293,14 @@ namespace Sip
     }
 
     // a simple list of rows with one action each (remembered volumes, hidden apps)
-    class ItemList : SipControl
+    class ItemList : EchoaControl
     {
         public class Item { public string Title, Sub, Value, Action; public Bitmap Icon; public Action Click; }
         List<Item> items = new List<Item>();
-        int hover = -1, scroll;
+        int hover = -1;
         bool hoverAction;
+        SmoothScroller sc;
+        int scroll => sc.Value;
         public string Empty = "Nothing here";
         readonly Font fBody, fSmall;
         int RowH => S(44);
@@ -248,9 +309,10 @@ namespace Sip
         {
             fBody = Theme.Ui(10f);
             fSmall = Theme.Ui(9f);
+            sc = new SmoothScroller(this, () => MaxScroll);
         }
 
-        public void SetItems(List<Item> list) { items = list; scroll = Math.Max(0, Math.Min(scroll, MaxScroll)); Invalidate(); }
+        public void SetItems(List<Item> list) { items = list; sc.Fit(); Invalidate(); }
         int MaxScroll => Math.Max(0, items.Count * RowH - Height);
 
         Rectangle RowRect(int i) => new Rectangle(0, i * RowH - scroll, Width - S(6), RowH - S(4));
@@ -325,11 +387,12 @@ namespace Sip
             int h = HitRow(e.Location);
             if (h >= 0 && e.Button == MouseButtons.Left && items[h].Action != null && ActionRect(h).Contains(e.Location)) items[h].Click?.Invoke();
         }
-        protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); scroll = Math.Max(0, Math.Min(MaxScroll, scroll - Math.Sign(e.Delta) * RowH)); Invalidate(); }
+        protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); sc.Wheel(e.Delta, RowH); }
+        protected override void OnResize(EventArgs e) { base.OnResize(e); sc?.Fit(); }
     }
 
     // accent colour picker: preset swatches + a custom colour
-    class SwatchRow : SipControl
+    class SwatchRow : EchoaControl
     {
         public Color Value = Theme.DefaultAccent;
         public event Action<Color> Picked;
@@ -380,5 +443,29 @@ namespace Sip
                 Picked?.Invoke(Value);
             }
         }
+    }
+}
+
+namespace Echoa
+{
+    // Smooth scrolling for the owner-drawn lists: the wheel moves a target, the view eases toward it at ~60 fps.
+    sealed class SmoothScroller : IDisposable
+    {
+        readonly Control owner;
+        readonly Timer timer = new Timer { Interval = 15 };
+        readonly Func<int> max;
+        float pos, target;
+        public SmoothScroller(Control c, Func<int> maxScroll) { owner = c; max = maxScroll; timer.Tick += (o, e) => Step(); }
+        public int Value => (int)Math.Round(pos);
+        float Clamp(float v) => Math.Max(0, Math.Min(Math.Max(0, max()), v));
+        public void Wheel(int delta, float pixelsPerNotch) { target = Clamp(target - delta * pixelsPerNotch / 120f); if (!timer.Enabled) timer.Start(); }
+        public void Fit() { float t = Clamp(target), p = Clamp(pos); if (t != target || p != pos) { target = t; pos = p; owner.Invalidate(); } }
+        void Step()
+        {
+            float d = target - pos;
+            if (Math.Abs(d) < 0.6f) { pos = target; timer.Stop(); } else pos += d * 0.3f;
+            owner.Invalidate(); owner.Update();
+        }
+        public void Dispose() { timer.Dispose(); }
     }
 }

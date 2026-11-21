@@ -6,20 +6,22 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace Sip
+namespace Echoa
 {
     static class Program
     {
         [STAThread]
         static void Main(string[] args)
         {
-            using (var mutex = new Mutex(true, "Sip.SingleInstance.v1", out bool created))
+            using (var mutex = new Mutex(true, "Echoa.SingleInstance.v1", out bool created))
             {
+                bool exit = args.Contains("--exit");
                 if (!created)
                 {
-                    Native.PostMessage((IntPtr)0xffff, Native.WM_SHOWSIP, IntPtr.Zero, IntPtr.Zero);
+                    Native.PostMessage((IntPtr)0xffff, exit ? Native.WM_EXITECHOA : Native.WM_SHOWSIP, IntPtr.Zero, IntPtr.Zero);
                     return;
                 }
+                if (exit) return;   // asked to close, but Echoa wasn't running
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -34,7 +36,7 @@ namespace Sip
                 catch (Exception ex)
                 {
                     Log.Crash(ex);
-                    MessageBox.Show("Sip couldn't start:\n\n" + ex.Message + "\n\nDetails are in " + Log.Path, "Sip", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show("Echoa couldn't start:\n\n" + ex.Message + "\n\nDetails are in " + Log.Path, "Echoa", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
                 Application.Run(app);
@@ -74,9 +76,11 @@ namespace Sip
         readonly SynchronizationContext ui;
         readonly Engine engine;
         readonly TrayIcon tray;
-        readonly SipPanel panel;
+        readonly EchoaPanel panel;
         readonly Media media;
-        readonly System.Windows.Forms.Timer saveTimer, mediaTimer;
+        readonly System.Windows.Forms.Timer saveTimer, mediaTimer, micTimer;
+        MicMeter micMeter;
+        DateTime micTestUntil;
         readonly ContextMenuStrip menu;
         MainWindow main;
         int trayPct = -1;
@@ -91,7 +95,7 @@ namespace Sip
             if (Theme.TryHex(S.Accent, out var accent)) Theme.SetAccent(accent);
             try { AppIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { AppIcon = SystemIcons.Application; }
 
-            panel = new SipPanel(this);
+            panel = new EchoaPanel(this);
             panel.VisibleChanged += (o, e) => Safe(PanelVisibility);
             menu = new ContextMenuStrip { Renderer = new DarkRenderer(), Font = Theme.Ui(9.5f), ShowImageMargin = true };
             menu.Closed += (o, e) => ReleasePanel();
@@ -106,12 +110,24 @@ namespace Sip
             media = new Media(ui, np => { Media = np; panel.ModelChanged(); }, panel.ArtPx);
             mediaTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             mediaTimer.Tick += (o, e) => media.Refresh();
+            micTimer = new System.Windows.Forms.Timer { Interval = 33 };
+            micTimer.Tick += (o, e) => Safe(MicTimerTick);
 
             tray = new TrayIcon { WheelEnabled = S.ScrollTray };
             tray.Activated += kb => Safe(() => ToggleFlyout(kb));
             tray.MenuRequested += pt => Safe(() => ShowTrayMenu(pt));
             tray.Wheel += n => Safe(() => TrayWheel(n));
-            tray.OtherMessage = m => { if (m.Msg == Native.WM_SHOWSIP) Safe(() => OpenMain(null, null)); };
+            tray.OtherMessage = m =>
+            {
+                if (m.Msg == Native.WM_SHOWSIP) Safe(() => OpenMain(null, null));
+                else if (m.Msg == Native.WM_EXITECHOA)
+                {
+                    // close cleanly after this message is handled, not inside it
+                    var t = new System.Windows.Forms.Timer { Interval = 10 };
+                    t.Tick += (o, e) => { t.Stop(); t.Dispose(); Safe(Exit); };
+                    t.Start();
+                }
+            };
             UpdateTray(true);
             tray.Show();
             TrayPromote.Start();
@@ -120,7 +136,7 @@ namespace Sip
             if (S.FirstRun)
             {
                 S.Save();
-                tray.Balloon("Sip is running", "Click the ring for your devices and apps. Scroll over it to change the volume.");
+                tray.Balloon("Echoa is running", "Click the ring for your devices and apps. Scroll over it to change the volume.");
             }
         }
 
@@ -158,7 +174,7 @@ namespace Sip
             if (p.Fallback.Length > 0) engine.Fallback[id] = p.Fallback; else engine.Fallback.TryRemove(id, out _);
         }
 
-        // your names replace Windows' ones everywhere in Sip
+        // your names replace Windows' ones everywhere in Echoa
         void ApplyNames(Snapshot s)
         {
             foreach (var d in s.Devices.Concat(s.Inputs))
@@ -224,6 +240,45 @@ namespace Sip
             engine.SetDefault(id);
             Snap.DefaultInputId = id;
             main?.ValuesChanged();
+            panel.ValuesChanged();
+        }
+
+        // ------------------------------------------------------------ mic area in the flyout footer
+        public bool MicOn => S.MicFooter;
+        public DevSnap Mic => Snap.Inputs.FirstOrDefault(d => d.Id == Snap.DefaultInputId);
+        public bool MicTesting => micMeter != null;
+        public bool MicTestFailed => micMeter != null && micMeter.Failed;
+        public float MicLevel => micMeter?.Level ?? 0f;
+
+        public void MicMute()
+        {
+            var m = Mic;
+            if (m != null) DeviceMute(m.Id, !m.Muted);
+        }
+
+        // the test opens the mic only while it runs: until Stop, the flyout closes, or 30 s pass
+        public void MicTest(bool on)
+        {
+            micMeter?.Dispose();
+            micMeter = null;
+            var m = Mic;
+            if (on && m != null)
+            {
+                micMeter = new MicMeter(m.Id);
+                micTestUntil = DateTime.UtcNow.AddSeconds(30);
+                micTimer.Start();
+            }
+            else micTimer.Stop();
+            panel.ValuesChanged();
+        }
+
+        void MicTimerTick()
+        {
+            if (micMeter == null) { micTimer.Stop(); return; }
+            var m = Mic;
+            if (m == null || DateTime.UtcNow > micTestUntil || !panel.Visible) { MicTest(false); return; }
+            if (m.Id != micMeter.DeviceId) MicTest(true);   // the default mic changed: test the new one
+            panel.MicTick();
         }
 
         public void DeviceVolume(string id, float v, bool final)
@@ -312,6 +367,7 @@ namespace Sip
         public void SettingsChanged()
         {
             PushSettings();
+            if (!S.MicFooter) MicTest(false);
             tray.WheelEnabled = S.ScrollTray;
             if (S.CapsOn) foreach (var d in Snap.Devices) engine.EnforceCap(d.Id);
             SaveSoon();
@@ -342,7 +398,7 @@ namespace Sip
             bool muted = d != null && d.Muted, empty = d == null;
             if (!force && pct == trayPct && muted == trayMuted && empty == trayEmpty) return;
             trayPct = pct; trayMuted = muted; trayEmpty = empty;
-            string tip = d == null ? "Sip · no output device" : d.Name + " · " + (muted ? "muted" : pct + "%");
+            string tip = d == null ? "Echoa · no output device" : d.Name + " · " + (muted ? "muted" : pct + "%");
             tray.Update(TrayArt.Render(pct / 100f, muted || empty, SystemInformation.SmallIconSize.Width), tip);
         }
 
@@ -368,6 +424,7 @@ namespace Sip
 
         void PanelVisibility()
         {
+            if (!panel.Visible && micMeter != null) MicTest(false);
             bool on = panel.Visible && S.NowPlaying;
             if (on && !mediaTimer.Enabled) { media.Refresh(); mediaTimer.Start(); }
             else if (!on && mediaTimer.Enabled) mediaTimer.Stop();
@@ -423,11 +480,11 @@ namespace Sip
         void ShowTrayMenu(Point screen)
         {
             menu.Items.Clear();
-            var open = Mi("Open Sip", () => OpenMain(null, null));
+            var open = Mi("Open Echoa", () => OpenMain(null, null));
             open.Font = new Font(menu.Font, FontStyle.Bold);
             menu.Items.Add(open);
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(Mi("Exit Sip", Exit));
+            menu.Items.Add(Mi("Exit Echoa", Exit));
             ShowMenu(menu, screen);
         }
 
@@ -471,6 +528,7 @@ namespace Sip
             main?.Close();
             saveTimer.Stop();
             mediaTimer.Stop();
+            MicTest(false);
             S.Save();
             media.Dispose();
             engine.Dispose();

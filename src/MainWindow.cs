@@ -7,7 +7,7 @@ using System.Drawing.Text;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace Sip
+namespace Echoa
 {
     interface IMainHost
     {
@@ -28,7 +28,7 @@ namespace Sip
     }
 
     // Microphones as rows: click a row to make it the default, mute button, volume slider.
-    class MixList : SipControl
+    class MixList : EchoaControl
     {
         readonly IMainHost app;
         readonly Font fName, fSmall, fNum, fIcon, fIconSmall;
@@ -84,7 +84,7 @@ namespace Sip
                 var mr = Mute(r);
                 bool mh = hover == d.Id + "#mute";
                 if (mh) Theme.Fill(g, mr, Theme.CardHover, S(5));
-                TextRenderer.DrawText(g, d.Muted ? Theme.GMute : Theme.GMic, fIconSmall, mr, d.Muted ? Theme.Red : mh ? Theme.Text : Theme.Sub, Ux.C);
+                TextRenderer.DrawText(g, d.Muted ? Theme.GMute : Theme.GMic, fIconSmall, mr, d.Muted ? Theme.Accent : mh ? Theme.Text : Theme.Sub, Ux.C);
                 var z = Zone(r);
                 var t = Track(z);
                 Theme.Fill(g, t, Theme.Track, t.Height / 2);
@@ -167,13 +167,15 @@ namespace Sip
     }
 
     // the output devices as a pickable list (left side of the Devices page)
-    class PickList : SipControl
+    class PickList : EchoaControl
     {
         public class Item { public string Id, Title, Sub, Glyph; public bool Connected; }
         List<Item> items = new List<Item>();
         public string Selected;
         public event Action SelectedChanged;
-        int hover = -1, scroll;
+        int hover = -1;
+        readonly SmoothScroller sc;
+        int scroll => sc.Value;
         readonly Font fName, fSmall, fIcon;
         int RowH => S(52);
 
@@ -182,6 +184,7 @@ namespace Sip
             fName = Theme.Ui(10f);
             fSmall = Theme.Ui(8.5f);
             fIcon = new Font(Theme.IconFont, 12f);
+            sc = new SmoothScroller(this, () => items.Count * RowH - Height);
             Cursor = Cursors.Hand;
             SetStyle(ControlStyles.Selectable, true);
         }
@@ -190,7 +193,7 @@ namespace Sip
         {
             items = list;
             if (Selected == null || !items.Any(i => i.Id == Selected)) { Selected = items.FirstOrDefault()?.Id; SelectedChanged?.Invoke(); }
-            scroll = Math.Max(0, Math.Min(scroll, Math.Max(0, items.Count * RowH - Height)));
+            sc.Fit();
             Invalidate();
         }
 
@@ -220,7 +223,8 @@ namespace Sip
         protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); int h = Hit(e.Location); if (h != hover) { hover = h; Invalidate(); } }
         protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hover = -1; Invalidate(); }
         protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); int h = Hit(e.Location); if (h >= 0) Select(items[h].Id); }
-        protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); scroll = Math.Max(0, Math.Min(Math.Max(0, items.Count * RowH - Height), scroll - Math.Sign(e.Delta) * RowH)); Invalidate(); }
+        protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); sc.Wheel(e.Delta, RowH); }
+        protected override void OnResize(EventArgs e) { base.OnResize(e); sc?.Fit(); }
         protected override bool IsInputKey(Keys k) => k == Keys.Up || k == Keys.Down || base.IsInputKey(k);
         protected override void OnKeyDown(KeyEventArgs e)
         {
@@ -267,7 +271,7 @@ namespace Sip
         public MainWindow(IMainHost a, string startPage, string devId)
         {
             app = a;
-            Text = "Sip";
+            Text = "Echoa";
             Icon = app.AppIcon;
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
@@ -369,7 +373,7 @@ namespace Sip
             dTitle = Lbl(p, "", x, y, w, S(28), Theme.Text, Theme.UiTitle(13f));
             dWin = Lbl(p, "", x, y + S(28), w, S(20), Theme.Dim, fSmall);
             y += S(58);
-            Lbl(p, "Name in Sip", x, y, w, S(20), Theme.Sub, fSmall);
+            Lbl(p, "Name in Echoa", x, y, w, S(20), Theme.Sub, fSmall);
             dName = new DarkBox(s) { Location = new Point(x, y + S(22)), Size = new Size(w, S(34)), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
             dName.Box.KeyDown += (o, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; SaveName(); } };
             dName.Box.LostFocus += (o, e) => SaveName();
@@ -489,8 +493,8 @@ namespace Sip
             var p = NewPage("Apps", null);
             int y = S(52);
             Lbl(p, "Remembered volumes", 0, y, p.Width, S(24), Theme.Text, fH2);
-            Lbl(p, "Set an app's volume in Sip and it starts at that level every time it opens, on any device.", 0, y + S(24), p.Width, S(20), Theme.Dim, fSmall);
-            remembered = new ItemList(s) { Location = new Point(0, y + S(50)), Size = new Size(p.Width, S(178)), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, Empty = "Nothing yet. Move an app's slider in the flyout and Sip remembers it." };
+            Lbl(p, "Set an app's volume in Echoa and it starts at that level every time it opens, on any device.", 0, y + S(24), p.Width, S(20), Theme.Dim, fSmall);
+            remembered = new ItemList(s) { Location = new Point(0, y + S(50)), Size = new Size(p.Width, S(178)), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, Empty = "Nothing yet. Move an app's slider in the flyout and Echoa remembers it." };
             p.Controls.Add(remembered);
             y += S(246);
             Lbl(p, "Hidden apps", 0, y, p.Width, S(24), Theme.Text, fH2);
@@ -540,15 +544,16 @@ namespace Sip
                 y += hint != null ? S(50) : S(34);
             }
             Add("Remember each device's volume", "When a device reconnects, it gets its last volume back.", () => st.VolumeMemory, v => st.VolumeMemory = v);
-            Add("Remember app volumes", "Apps start at the volume you last set for them in Sip.", () => st.AppMemory, v => st.AppMemory = v);
+            Add("Remember app volumes", "Apps start at the volume you last set for them in Echoa.", () => st.AppMemory, v => st.AppMemory = v);
             Add("Auto-switch rules", "Set per device on the Devices page: switch on connect, fall back on disconnect.", () => st.RulesOn, v => st.RulesOn = v);
             Add("Stop marked devices taking over", "Per device on the Devices page.", () => st.BlockSteal, v => st.BlockSteal = v);
-            Add("Volume limits", "Per device on the Devices page. Sip keeps a device at or below its limit.", () => st.CapsOn, v => st.CapsOn = v);
+            Add("Volume limits", "Per device on the Devices page. Echoa keeps a device at or below its limit.", () => st.CapsOn, v => st.CapsOn = v);
             Add("Gentle ramp-up when switching to headphones", "Starts low and eases up to the volume over about a second.", () => st.RampOn, v => st.RampOn = v);
             Add("Simple flyout: only the main output", "Hides the other devices so there's nothing to switch: just the main output and its apps.", () => st.SimpleFlyout, v => st.SimpleFlyout = v);
             Add("Show \"Now playing\" in the flyout", null, () => st.NowPlaying, v => st.NowPlaying = v);
+            Add("Mic controls in the flyout", "Replaces the logo at the bottom of the flyout: mute button, mic picker (click the name) and a mic test.", () => st.MicFooter, v => st.MicFooter = v);
             Add("Scroll on the tray icon changes volume", null, () => st.ScrollTray, v => st.ScrollTray = v);
-            Add("Start Sip with Windows", null, () => Settings.StartWithWindows, v => Settings.StartWithWindows = v);
+            Add("Start Echoa with Windows", null, () => Settings.StartWithWindows, v => Settings.StartWithWindows = v);
             var folder = new FlatBtn("Open data folder", s) { Location = new Point(0, y + S(10)), Width = S(150) };
             folder.Click += (o, e) => { try { Process.Start("explorer.exe", "\"" + Settings.Dir + "\""); } catch { } };
             p.Controls.Add(folder);
@@ -611,7 +616,7 @@ namespace Sip
             g.Clear(Theme.Bg);
             using (var b = new SolidBrush(Theme.Nav)) g.FillRectangle(b, 0, 0, NavW, ClientSize.Height);
             Theme.DrawLogo(g, new RectangleF(S(18), S(20), S(30), S(30)));
-            TextRenderer.DrawText(g, "Sip", Theme.UiTitle(13f), new Rectangle(S(56), S(18), S(110), S(34)), Theme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, "Echoa", Theme.UiTitle(13f), new Rectangle(S(56), S(18), S(110), S(34)), Theme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
             for (int i = 0; i < pages.Length; i++)
             {
                 var r = NavItem(i);

@@ -1,9 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
-using Sip.CoreAudio;
+using Echoa.CoreAudio;
 
-namespace Sip
+namespace Echoa
 {
     // A short, soft two-note chime played straight to one output device (WASAPI shared mode),
     // whether or not it's the default. Runs on a thread-pool (MTA) thread.

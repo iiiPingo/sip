@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 
-namespace Sip
+namespace Echoa
 {
     // UI-side view of the audio world. The engine builds these on its own thread and hands them over;
     // after that only the UI thread touches them.
@@ -42,7 +42,7 @@ namespace Sip
     interface IAudioSink
     {
         void OnSnapshot(Snapshot s);
-        // a device's volume changed outside Sip; remember = worth saving for volume memory
+        // a device's volume changed outside Echoa; remember = worth saving for volume memory
         void OnDeviceVolume(string id, float vol, bool muted, bool remember);
         void OnAppVolume(string devId, string key, float vol, bool muted);
     }

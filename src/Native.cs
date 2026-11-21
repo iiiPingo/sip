@@ -3,11 +3,12 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Sip
+namespace Echoa
 {
     static class Native
     {
-        public static readonly int WM_SHOWSIP = RegisterWindowMessage("Sip.Show.v1");
+        public static readonly int WM_SHOWSIP = RegisterWindowMessage("Echoa.Show.v1");
+        public static readonly int WM_EXITECHOA = RegisterWindowMessage("Echoa.Exit.v1");   // "Echoa.exe --exit" (Minibar's Stop / updates)
         public static readonly int WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int RegisterWindowMessage(string s);

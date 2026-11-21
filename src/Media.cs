@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace Sip
+namespace Echoa
 {
     class NowPlaying
     {
@@ -67,7 +67,7 @@ namespace Sip
             this.artPx = artPx;
             this.ui = ui;
             this.done = done;
-            thread = new Thread(Run) { IsBackground = true, Name = "SipMedia", Priority = ThreadPriority.BelowNormal };
+            thread = new Thread(Run) { IsBackground = true, Name = "EchoaMedia", Priority = ThreadPriority.BelowNormal };
             thread.SetApartmentState(ApartmentState.MTA);
             thread.Start();
         }
