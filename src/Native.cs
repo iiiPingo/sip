@@ -14,6 +14,8 @@ namespace Echoa
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int RegisterWindowMessage(string s);
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+        [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, int flags);
+        public const int SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10, SWP_NOCOPYBITS = 0x100, SWP_NOOWNERZORDER = 0x200;
         [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr h);
         [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
         [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);

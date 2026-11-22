@@ -549,7 +549,7 @@ namespace Echoa
             Add("Stop marked devices taking over", "Per device on the Devices page.", () => st.BlockSteal, v => st.BlockSteal = v);
             Add("Volume limits", "Per device on the Devices page. Echoa keeps a device at or below its limit.", () => st.CapsOn, v => st.CapsOn = v);
             Add("Gentle ramp-up when switching to headphones", "Starts low and eases up to the volume over about a second.", () => st.RampOn, v => st.RampOn = v);
-            Add("Simple flyout: only the main output", "Hides the other devices so there's nothing to switch: just the main output and its apps.", () => st.SimpleFlyout, v => st.SimpleFlyout = v);
+            Add("Simple flyout: only the main output", "Hides the other devices so there's nothing to switch: just the main output and its apps. The arrow on the main output in the flyout flips this too.", () => st.SimpleFlyout, v => st.SimpleFlyout = v);
             Add("Show \"Now playing\" in the flyout", null, () => st.NowPlaying, v => st.NowPlaying = v);
             Add("Mic controls in the flyout", "Replaces the logo at the bottom of the flyout: mute button, mic picker (click the name) and a mic test.", () => st.MicFooter, v => st.MicFooter = v);
             Add("Scroll on the tray icon changes volume", null, () => st.ScrollTray, v => st.ScrollTray = v);
@@ -643,6 +643,8 @@ namespace Echoa
             base.OnMouseUp(e);
             for (int i = 0; i < pages.Length; i++) if (NavItem(i).Contains(e.Location)) ShowPage(i);
         }
+
+        public void SyncSettings() { foreach (var t in settingToggles) t.Item1.On = t.Item2(); }
 
         static void RefreshAll(Control c) { c.Invalidate(); foreach (Control k in c.Controls) RefreshAll(k); }
 

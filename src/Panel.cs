@@ -34,6 +34,7 @@ namespace Echoa
         float MicLevel { get; }         // raw peak 0..1 while testing
         void MicTest(bool on);
         void SetDefaultInput(string id);
+        void SetSimpleFlyout(bool on);  // the fold arrow on the main output
     }
 
     class EchoaPanel : Form
@@ -47,11 +48,11 @@ namespace Echoa
             public AppSnap A;
             public bool Default, Open;
             public int AppCount;
-            public Rectangle R, Icon, Mute, Zone, Num, Chip;
+            public Rectangle R, Icon, Mute, Zone, Num, Chip, Fold, Clip;   // Clip: visible part while folding (Empty = all)
             public string Key;
         }
 
-        class Group { public Rectangle R; public bool Default; }
+        class Group { public Rectangle R, Clip; public bool Default; }
 
         class Drag { public string Dev, App; public RectangleF Track; public string Key; }
 
@@ -71,6 +72,14 @@ namespace Echoa
         readonly Timer scrollAnim = new Timer { Interval = 15 };
         DateTime animStart;
         int animTarget, animFrom;
+        // minimal mode fold: 'expand' is how much of the other outputs shows (0 = minimal, 1 = all).
+        // It eases between the two so the list opens like an accordion and the flyout grows with it.
+        float expand = 1, foldFrom, foldTo;
+        readonly Timer foldAnim = new Timer { Interval = 10 };
+        readonly System.Diagnostics.Stopwatch foldClock = new System.Diagnostics.Stopwatch();
+        double foldMs;
+        bool othersExist;                                // something to unfold besides the main output
+        readonly List<Rectangle> folds = new List<Rectangle>();   // folding blocks (faded while partly shown)
         public bool SuppressHide;
         public DateTime LastHidden = DateTime.MinValue;
 
@@ -125,6 +134,7 @@ namespace Echoa
             };
             anim = new Timer { Interval = 10 };
             anim.Tick += (o, e) => AnimTick();
+            foldAnim.Tick += (o, e) => FoldTick();
 
             Size = new Size(W, S(200));
             var _ = Handle;   // create the window now so the first open is instant
@@ -164,19 +174,26 @@ namespace Echoa
         {
             rows.Clear();
             groups.Clear();
+            folds.Clear();
             var snap = host.Snap;
-            int x = Pad, w = W - Pad * 2, y = 0;
+            if (!foldAnim.Enabled) expand = host.S.SimpleFlyout ? 0 : 1;
+            othersExist = snap.Devices.Any(d => d.Id != snap.DefaultId && DeviceShown(d, snap.DefaultId));
+            bool haveDefault = snap.Devices.Any(d => d.Id == snap.DefaultId);
+            int x = Pad, w = W - Pad * 2, y = 0, lastGap = 0;
             foreach (var d in snap.Devices)
             {
                 if (!DeviceShown(d, snap.DefaultId)) continue;
-                if (host.S.SimpleFlyout && d.Id != snap.DefaultId) continue;   // simple flyout: main output only
                 bool def = d.Id == snap.DefaultId;
+                // minimal mode: other outputs fold away (only if there is a main output to keep)
+                float f = def || !haveDefault ? 1 : expand;
+                if (f <= 0.001f) continue;
                 var apps = VisibleApps(d);
                 bool open = def || (peeked.Contains(d.Id) && apps.Count > 0);
-                int gy = y;
+                int gy = y, first = rows.Count;
                 var dr = new Row { K = RK.Device, D = d, Default = def, Open = open, AppCount = apps.Count, Key = "d|" + d.Id, R = new Rectangle(x, y, w, DevH) };
                 rows.Add(dr);
                 y += DevH;
+                Group grp = null;
                 if (open)
                 {
                     if (apps.Count == 0) { rows.Add(new Row { K = RK.Empty, D = d, Key = "e|" + d.Id, R = new Rectangle(x, y, w, EmptyH) }); y += EmptyH; }
@@ -186,11 +203,24 @@ namespace Echoa
                         y += AppH;
                     }
                     y += GroupPadB;
-                    groups.Add(new Group { R = new Rectangle(x, gy, w, y - gy), Default = def });
+                    grp = new Group { R = new Rectangle(x, gy, w, y - gy), Default = def };
+                    groups.Add(grp);
                 }
-                y += Gap;
+                if (f < 1)
+                {
+                    // partly shown: the block keeps its natural layout and is revealed top-down
+                    int vis = (int)Math.Round((y - gy) * f);
+                    var clip = new Rectangle(0, gy, W, vis);
+                    for (int i = first; i < rows.Count; i++) rows[i].Clip = clip;
+                    if (grp != null) grp.Clip = clip;
+                    folds.Add(clip);
+                    y = gy + vis;
+                    lastGap = (int)Math.Round(Gap * f);
+                }
+                else lastGap = Gap;
+                y += lastGap;
             }
-            contentH = Math.Max(rows.Count == 0 ? S(72) : y - Gap, 0);
+            contentH = Math.Max(rows.Count == 0 ? S(72) : y - lastGap, 0);
         }
 
         void PlaceParts(int dy)
@@ -198,9 +228,11 @@ namespace Echoa
             foreach (var r in rows)
             {
                 r.R.Offset(0, dy);
+                if (!r.Clip.IsEmpty) r.Clip.Offset(0, dy);
                 var b = r.R;
                 if (r.K == RK.Device)
                 {
+                    r.Fold = r.Default && othersExist ? new Rectangle(b.Right - S(8) - S(28), b.Y + S(5), S(28), S(28)) : Rectangle.Empty;
                     r.Icon = new Rectangle(b.X + S(26), b.Y + S(7), S(24), S(24));
                     r.Mute = new Rectangle(b.X + S(26), b.Y + S(33), S(24), S(24));
                     r.Zone = Rectangle.FromLTRB(b.X + S(56), b.Y + S(33), b.Right - S(42), b.Y + S(57));
@@ -220,7 +252,8 @@ namespace Echoa
                     r.Num = Rectangle.FromLTRB(b.Right - S(42), r.Zone.Y, b.Right - S(10), r.Zone.Bottom);
                 }
             }
-            foreach (var g in groups) g.R.Offset(0, dy);
+            foreach (var g in groups) { g.R.Offset(0, dy); if (!g.Clip.IsEmpty) g.Clip.Offset(0, dy); }
+            for (int i = 0; i < folds.Count; i++) { var f = folds[i]; f.Offset(0, dy); folds[i] = f; }
         }
 
         static string ChipText(int n) => n == 1 ? "1 app" : n + " apps";
@@ -243,7 +276,14 @@ namespace Echoa
             if (picking) h = Math.Max(h, FooterH + PickH + S(16));
             if (Height != h || Width != W)
             {
-                if (Visible && anchorBottom && !anim.Enabled) { int bottom = Bottom; Size = new Size(W, h); Top = bottom - h; }
+                if (Visible && !anim.Enabled)
+                {
+                    // one native move+resize (no copied bits), so growing upward never shows a jumped frame
+                    int top = anchorBottom ? Bottom - h : Top;
+                    try { Native.SetWindowPos(Handle, IntPtr.Zero, Left, top, W, h, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOCOPYBITS | Native.SWP_NOOWNERZORDER); }
+                    catch { SetBounds(Left, top, W, h); }
+                    if (Height != h) SetBounds(Left, top, W, h);
+                }
                 else Size = new Size(W, h);
             }
             Invalidate();
@@ -291,6 +331,7 @@ namespace Echoa
         public void HidePanel()
         {
             anim.Stop();
+            foldAnim.Stop();
             Opacity = 1;
             if (Capture) Capture = false;
             drag = null;
@@ -299,6 +340,38 @@ namespace Echoa
             peeked.Clear();
             hover = null;
             picking = false;
+        }
+
+        // ------------------------------------------------------------ minimal mode fold
+        public void ToggleMinimal()
+        {
+            bool on = !host.S.SimpleFlyout;
+            host.SetSimpleFlyout(on);
+            hover = null;
+            if (!Visible) { Relayout(); return; }
+            foldFrom = expand;
+            foldTo = on ? 0 : 1;
+            foldMs = 260 * Math.Abs(foldTo - foldFrom);
+            if (foldMs < 1) { foldAnim.Stop(); Relayout(); return; }
+            foldClock.Restart();
+            foldAnim.Start();
+            FoldTick();
+        }
+
+        void FoldTick()
+        {
+            double t = Math.Min(1, foldClock.Elapsed.TotalMilliseconds / foldMs);
+            double e = t < 0.5 ? 4 * t * t * t : 1 - Math.Pow(-2 * t + 2, 3) / 2;   // ease in-out cubic
+            expand = (float)(foldFrom + (foldTo - foldFrom) * e);
+            if (t >= 1) { foldAnim.Stop(); expand = foldTo; }
+            Relayout();
+            Update();   // paint right after the resize, in the same frame
+            if (!foldAnim.Enabled)
+            {
+                var p = PointToClient(Cursor.Position);
+                hover = ClientRectangle.Contains(p) ? HitKey(p, out _) : null;
+                Invalidate();
+            }
         }
 
         protected override void OnDeactivate(EventArgs e)
@@ -340,7 +413,13 @@ namespace Echoa
             var state = g.Save();
             g.SetClip(listClip);
 
-            foreach (var gr in groups) Theme.Fill(g, gr.R, gr.Default ? Theme.Card : Theme.CardSoft, S(8));
+            foreach (var gr in groups)
+            {
+                if (gr.Clip.IsEmpty) { Theme.Fill(g, gr.R, gr.Default ? Theme.Card : Theme.CardSoft, S(8)); continue; }
+                var st = g.Save(); g.IntersectClip(gr.Clip);
+                Theme.Fill(g, gr.R, gr.Default ? Theme.Card : Theme.CardSoft, S(8));
+                g.Restore(st);
+            }
 
             if (rows.Count == 0)
                 TextRenderer.DrawText(g, "No output devices", fBody, new Rectangle(Pad, ListTop, W - Pad * 2, contentH), Theme.Sub, C);
@@ -348,11 +427,21 @@ namespace Echoa
             foreach (var r in rows)
             {
                 if (r.R.Bottom < listClip.Top || r.R.Top > listClip.Bottom) continue;
+                if (!r.Clip.IsEmpty && (r.Clip.Height <= 0 || r.R.Top >= r.Clip.Bottom)) continue;
+                var rs = r.Clip.IsEmpty ? null : g.Save();
+                if (rs != null) g.IntersectClip(r.Clip);
                 if (r.K == RK.Device) DrawDevice(g, r);
                 else if (r.K == RK.App) DrawApp(g, r);
                 else TextRenderer.DrawText(g, "No apps playing", fSmall, new Rectangle(r.R.X + S(56), r.R.Y, r.R.Width - S(66), r.R.Height), Theme.Dim, L);
                 if (focusVisible && r.Key == focusKey)
                     Theme.Stroke(g, Rectangle.Inflate(r.R, -S(1), -S(1)), Theme.Accent, S(7), Math.Max(1.5f, s * 1.5f));
+                if (rs != null) g.Restore(rs);
+            }
+            // folding outputs fade in/out with the reveal
+            if (folds.Count > 0)
+            {
+                int a = (int)Math.Round(255 * Math.Pow(1 - Math.Max(0, Math.Min(1, expand)), 1.6));
+                if (a > 0) using (var b = new SolidBrush(Color.FromArgb(a, Theme.Bg))) foreach (var f in folds) g.FillRectangle(b, f);
             }
 
             if (contentH > viewH)
@@ -513,7 +602,8 @@ namespace Echoa
             }
 
             // name + sub
-            int nx = r.R.X + S(56), right = (r.Chip.IsEmpty ? r.R.Right - S(10) : r.Chip.X - S(8));
+            int nx = r.R.X + S(56), right = !r.Fold.IsEmpty ? r.Fold.X - S(6) : r.Chip.IsEmpty ? r.R.Right - S(10) : r.Chip.X - S(8);
+            if (!r.Fold.IsEmpty) DrawFold(g, r);
             var nameR = new Rectangle(nx, r.R.Y + S(7), Math.Max(0, right - nx), S(24));
             int nw = Math.Min(nameR.Width, TextRenderer.MeasureText(g, d.Name, fName, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width + S(2));
             TextRenderer.DrawText(g, d.Name, fName, new Rectangle(nameR.X, nameR.Y, nw, nameR.Height), Theme.Text, L);
@@ -543,6 +633,21 @@ namespace Echoa
             }
             DrawSlider(g, r.Zone, d.Vol, d.Muted, Hov(r.Key + "#slider"), drag != null && drag.Key == r.Key);
             TextRenderer.DrawText(g, Pct(d.Vol), fNum, r.Num, d.Muted ? Theme.Dim : Theme.Sub, R);
+        }
+
+        // the minimal mode arrow: points down when the other outputs are folded away, turns to point up as they open
+        void DrawFold(Graphics g, Row r)
+        {
+            var b = r.Fold;
+            bool h = Hov(r.Key + "#fold");
+            if (h) Theme.Fill(g, b, Theme.CardHover, S(6));
+            float cx = b.X + b.Width / 2f, cy = b.Y + b.Height / 2f, a = S(4.5f), hh = S(2.4f);
+            var st = g.Save();
+            g.TranslateTransform(cx, cy);
+            g.RotateTransform(180f * Math.Max(0, Math.Min(1, expand)));
+            using (var p = new Pen(h ? Theme.Text : Theme.Sub, Math.Max(1.5f, s * 1.6f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+                g.DrawLines(p, new[] { new PointF(-a, -hh), new PointF(0, hh), new PointF(a, -hh) });
+            g.Restore(st);
         }
 
         Rectangle NpButton(Rectangle nr, int i)
@@ -668,6 +773,7 @@ namespace Echoa
                 if (nr.Contains(p)) return null;
             }
             if (p.Y < ListTop || p.Y >= ListTop + viewH) return null;
+            if (foldAnim.Enabled) return null;   // no clicks on rows while they slide
             foreach (var r in rows)
             {
                 if (!r.R.Contains(p)) continue;
@@ -677,6 +783,7 @@ namespace Echoa
                 if (r.K == RK.Device)
                 {
                     if (r.Mute.Contains(p)) return r.Key + "#mute";
+                    if (!r.Fold.IsEmpty && Rectangle.Inflate(r.Fold, S(3), S(3)).Contains(p)) return r.Key + "#fold";
                     if (!r.Chip.IsEmpty && Rectangle.Inflate(r.Chip, S(2), S(4)).Contains(p)) return r.Key + "#chip";
                     return r.Key + "#row";
                 }
@@ -768,6 +875,7 @@ namespace Echoa
             if (row == null) return;
             if (k.EndsWith("#mute")) host.DeviceMute(row.D.Id, !row.D.Muted);
             else if (k.EndsWith("#chip")) TogglePeek(row.D.Id);
+            else if (k.EndsWith("#fold")) { ToggleMinimal(); return; }
             else if (k.EndsWith("#icon") && row.A != null) host.AppMute(row.D.Id, row.A.Key, !row.A.Muted);
             else if (k.EndsWith("#row") && row.K == RK.Device && !row.Default) MakeDefault(row.D.Id);
             Invalidate();
@@ -858,7 +966,7 @@ namespace Echoa
                 case Keys.Enter:
                     if (cur == null) return true;
                     if (cur.K == RK.Device && shift) { if (!cur.Default && cur.AppCount > 0) TogglePeek(cur.D.Id); }
-                    else if (cur.K == RK.Device) { if (!cur.Default) MakeDefault(cur.D.Id); }
+                    else if (cur.K == RK.Device) { if (!cur.Default) MakeDefault(cur.D.Id); else if (othersExist) ToggleMinimal(); }
                     else host.AppMute(cur.D.Id, cur.A.Key, !cur.A.Muted);
                     Invalidate();
                     return true;

@@ -16,11 +16,12 @@ EarTrumpet couldn't change the Windows default output, its device list was huge,
 - **Auto-switch rules**: make a device the output when it connects, pick a fallback when it disconnects.
 - **Now playing** strip with cover art and previous / play-pause / next.
 - **Main window** with Inputs (default mic + mute), Devices (rename, rules, volume limits, test sound), Apps and Settings.
-- Accent colour picker, simple flyout mode, scroll on the tray icon to change volume.
+- **Minimal mode arrow**: a small arrow on the main output folds the other outputs away (or back) with a smooth animation.
+- Accent colour picker, scroll on the tray icon to change volume.
 - No hotkeys, no background polling while the flyout is closed, never crashes the session (errors go to `crash.log`).
 
 ## Install
-1. Download `Echoa-1.6.1.zip` from [Releases](../../releases/latest) and unzip it into its own folder.
+1. Download `Echoa-1.7.0.zip` from [Releases](../../releases/latest) and unzip it into its own folder.
 2. Run `Echoa.exe`. If SmartScreen warns, click **More info > Run anyway** (the exe is unsigned).
 
 Runs on Windows 10/11 with .NET Framework 4.8, which is already built in. Nothing to install.

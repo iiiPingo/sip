@@ -364,6 +364,14 @@ namespace Echoa
         }
 
         // a toggle on the Settings page changed
+        // the fold arrow in the flyout; the panel animates itself, so no relayout from here
+        public void SetSimpleFlyout(bool on)
+        {
+            S.SimpleFlyout = on;
+            SaveSoon();
+            main?.SyncSettings();
+        }
+
         public void SettingsChanged()
         {
             PushSettings();
