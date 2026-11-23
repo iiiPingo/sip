@@ -276,10 +276,12 @@ namespace Echoa
             if (picking) h = Math.Max(h, FooterH + PickH + S(16));
             if (Height != h || Width != W)
             {
-                if (Visible && !anim.Enabled)
+                if (Visible)
                 {
-                    // one native move+resize (no copied bits), so growing upward never shows a jumped frame
-                    int top = anchorBottom ? Bottom - h : Top;
+                    // one native move+resize (no copied bits), so growing upward never shows a jumped frame.
+                    // While it's still sliding open, move the slide too, so it can't end up behind the taskbar.
+                    int dy = anchorBottom ? Height - h : 0, top = Top + dy;
+                    if (anim.Enabled) { animFrom += dy; animTarget += dy; }
                     try { Native.SetWindowPos(Handle, IntPtr.Zero, Left, top, W, h, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOCOPYBITS | Native.SWP_NOOWNERZORDER); }
                     catch { SetBounds(Left, top, W, h); }
                     if (Height != h) SetBounds(Left, top, W, h);

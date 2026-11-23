@@ -99,6 +99,7 @@ namespace Echoa
             UI("#4 normal dragging still works", DragNormal);
 
             RunBatch2();
+            RunBatch3();
             Console.WriteLine(passed + " passed, " + failed + " failed");
             return failed;
         }

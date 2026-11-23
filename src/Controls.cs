@@ -168,9 +168,9 @@ namespace Echoa
             set
             {
                 int v = value < -1 || value >= Items.Count ? -1 : value;
+                Invalidate();   // the list may have been refilled, so the same index can be a different device
                 if (v == index) return;
                 index = v;
-                Invalidate();
                 SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
             }
         }

@@ -10,7 +10,7 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>1.7.1</Version>
+    <Version>1.7.2</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Echoa</Product>
     <Description>Echoa - volume mixer</Description>

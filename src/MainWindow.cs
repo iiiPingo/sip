@@ -33,6 +33,7 @@ namespace Echoa
         readonly IMainHost app;
         readonly Font fName, fSmall, fNum, fIcon, fIconSmall;
         readonly WheelSteps wheel = new WheelSteps();
+        readonly SmoothScroller sc;
         string hover, dragId;
         RectangleF dragTrack;
         int dragX;
@@ -46,10 +47,14 @@ namespace Echoa
             fNum = Theme.Ui(9f);
             fIcon = new Font(Theme.IconFont, 13f);
             fIconSmall = new Font(Theme.IconFont, 11f);
+            sc = new SmoothScroller(this, () => ContentH - Height);
         }
 
         List<DevSnap> Rows => app.Snap.Inputs;
-        Rectangle Row(int i) => new Rectangle(0, i * (RowH + S(4)), Width - S(2), RowH);
+        int ContentH => Math.Max(0, Rows.Count * (RowH + S(4)) - S(4));
+        bool Overflow => ContentH > Height;
+        Rectangle Row(int i) => new Rectangle(0, i * (RowH + S(4)) - sc.Value, Width - (Overflow ? S(8) : S(2)), RowH);
+        public void Refit() { sc.Fit(); Invalidate(); }
         Rectangle Mute(Rectangle r) => new Rectangle(r.X + S(26), r.Y + S(33), S(24), S(24));
         Rectangle Zone(Rectangle r) => Rectangle.FromLTRB(r.X + S(56), r.Y + S(33), r.Right - S(42), r.Y + S(57));
         RectangleF Track(Rectangle z) => new RectangleF(z.X + S(10), z.Y + z.Height / 2f - S(2), Math.Max(1, z.Width - S(20)), S(4));
@@ -71,6 +76,7 @@ namespace Echoa
             {
                 var d = rows[i];
                 var r = Row(i);
+                if (r.Bottom < 0 || r.Top > Height) continue;
                 bool def = d.Id == app.Snap.DefaultInputId;
                 bool hov = hover != null && hover.StartsWith(d.Id + "#");
                 Theme.Fill(g, r, def ? Theme.Card : hov ? Theme.CardSoft : Color.FromArgb(36, 36, 36), S(8));
@@ -97,6 +103,12 @@ namespace Echoa
                 Theme.Disc(g, c, S(8.5f), Theme.ThumbOuter);
                 Theme.Disc(g, c, hover == d.Id + "#slider" ? S(6.5f) : S(5.5f), d.Muted ? Theme.Sub : Theme.Accent);
                 TextRenderer.DrawText(g, ((int)Math.Round(d.Vol * 100)).ToString(), fNum, Rectangle.FromLTRB(r.Right - S(42), z.Y, r.Right - S(10), z.Bottom), d.Muted ? Theme.Dim : Theme.Sub, Ux.R);
+            }
+            if (Overflow)
+            {
+                int th = Math.Max(S(24), Height * Height / ContentH);
+                int ty = (Height - th) * sc.Value / Math.Max(1, ContentH - Height);
+                Theme.Fill(g, new Rectangle(Width - S(3), ty, S(3), th), Theme.Border, S(1.5f));
             }
         }
 
@@ -172,7 +184,10 @@ namespace Echoa
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            Hit(e.Location, out var d);
+            if (dragId != null) return;
+            string h = Hit(e.Location, out var d);
+            // a list too long to fit scrolls; only the slider itself changes the volume there
+            if (Overflow && (h == null || !h.EndsWith("#slider"))) { sc.Wheel(e.Delta, RowH); return; }
             if (d == null) return;
             int notches = wheel.Take(d.Id, e.Delta);
             if (notches == 0) return;
@@ -180,6 +195,8 @@ namespace Echoa
             app.DeviceVolume(d.Id, v, true);
             Invalidate();
         }
+
+        protected override void OnResize(EventArgs e) { base.OnResize(e); sc?.Fit(); }
     }
 
     // the output devices as a pickable list (left side of the Devices page)
@@ -587,14 +604,21 @@ namespace Echoa
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             base.OnFormClosing(e);
+            bool max = WindowState == FormWindowState.Maximized || (WindowState == FormWindowState.Minimized && Native.RestoresMaximized(Handle));
             var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-            app.MainBounds = WindowState == FormWindowState.Maximized ? new Rectangle(b.Location, new Size(-b.Width, -b.Height)) : b;
+            app.MainBounds = max ? new Rectangle(b.Location, new Size(-b.Width, -b.Height)) : b;
+        }
+
+        // back from the taskbar the way it was, maximized included
+        public void RestoreIfMinimized()
+        {
+            if (WindowState == FormWindowState.Minimized) Native.ShowWindow(Handle, Native.SW_RESTORE);
         }
 
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            MinimumSize = SizeFromClientSize(new Size(S(700), S(480)));
+            MinimumSize = SizeFromClientSize(new Size(S(750), S(520)));   // the smallest size where every page fits
             var r = app.MainBounds;
             if (r.IsEmpty) return;
             bool max = r.Width < 0;
@@ -611,7 +635,7 @@ namespace Echoa
         // ------------------------------------------------------------ live updates
         public void ModelChanged()
         {
-            mix.Invalidate();
+            mix.Refit();
             pick.SetItems(DeviceItems());
             if (!dName.Box.Focused && !(dFallback.DroppedDown)) BindDevice();
             FillApps();

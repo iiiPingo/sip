@@ -20,6 +20,19 @@ namespace Echoa
         [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
         [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);
 
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+        public const int SW_RESTORE = 9;
+
+        [StructLayout(LayoutKind.Sequential)] struct WINDOWPLACEMENT { public int length, flags, showCmd; public POINT min, max; public RECT normal; }
+        [DllImport("user32.dll")] static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT p);
+
+        // a minimized window that goes back to maximized
+        public static bool RestoresMaximized(IntPtr h)
+        {
+            var p = new WINDOWPLACEMENT { length = Marshal.SizeOf(typeof(WINDOWPLACEMENT)) };
+            return GetWindowPlacement(h, ref p) && (p.flags & 2) != 0;   // WPF_RESTORETOMAXIMIZED
+        }
+
         // ------------------------------------------------------------ Windows Audio service (read-only status)
         [StructLayout(LayoutKind.Sequential)] struct SERVICE_STATUS_PROCESS { public int type, state, accepted, exitCode, specificExit, checkPoint, waitHint, processId, flags; }
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] static extern IntPtr OpenSCManager(string machine, string database, int access);

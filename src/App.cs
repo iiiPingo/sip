@@ -459,7 +459,7 @@ namespace Echoa
             else
             {
                 main.ShowPageFor(page, devId);
-                if (main.WindowState == FormWindowState.Minimized) main.WindowState = FormWindowState.Normal;
+                main.RestoreIfMinimized();
             }
             main.Activate();
             Native.SetForegroundWindow(main.Handle);
