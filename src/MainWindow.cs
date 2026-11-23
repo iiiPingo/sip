@@ -32,8 +32,10 @@ namespace Echoa
     {
         readonly IMainHost app;
         readonly Font fName, fSmall, fNum, fIcon, fIconSmall;
+        readonly WheelSteps wheel = new WheelSteps();
         string hover, dragId;
         RectangleF dragTrack;
+        int dragX;
         int RowH => S(64);
 
         public MixList(IMainHost a, float scale) : base(scale)
@@ -150,8 +152,20 @@ namespace Echoa
 
         void Apply(int mx, bool final)
         {
+            dragX = mx;
             float v = (float)Math.Round(Math.Max(0, Math.Min(1, (mx - dragTrack.X) / dragTrack.Width)) * 100) / 100f;
             app.DeviceVolume(dragId, v, final);
+            Invalidate();
+        }
+
+        // Alt+Tab or a popup took the mouse mid-drag: finish there, so the slider can't follow the pointer afterwards
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            if (dragId == null || Capture) return;
+            Apply(dragX, true);
+            dragId = null;
+            hover = null;
             Invalidate();
         }
 
@@ -160,7 +174,9 @@ namespace Echoa
             base.OnMouseWheel(e);
             Hit(e.Location, out var d);
             if (d == null) return;
-            float v = Math.Max(0, Math.Min(1, (float)Math.Round(d.Vol * 100 + Math.Sign(e.Delta) * app.S.ScrollStep) / 100f));
+            int notches = wheel.Take(d.Id, e.Delta);
+            if (notches == 0) return;
+            float v = Math.Max(0, Math.Min(1, (float)Math.Round(d.Vol * 100 + notches * app.S.ScrollStep) / 100f));
             app.DeviceVolume(d.Id, v, true);
             Invalidate();
         }
@@ -257,6 +273,7 @@ namespace Echoa
         CapSlider dCap;
         FlatBtn dTest, dDefault;
         bool binding;
+        string boundDev;   // the device whose name is in the name box
         // apps
         ItemList remembered, hiddenApps;
         // settings
@@ -409,11 +426,12 @@ namespace Echoa
 
         void SaveName()
         {
-            if (binding || pick.Selected == null) return;
+            if (binding || boundDev == null) return;
             string n = dName.Box.Text.Trim();
-            var pr = app.S.Dev(pick.Selected);
+            var pr = app.S.Dev(boundDev);
             if (pr.Rename == n) return;
-            EditPrefs(x => x.Rename = n);
+            pr.Rename = n;
+            app.DevicePrefsChanged(boundDev);
         }
 
         void EditPrefs(Action<DevPrefs> edit)
@@ -448,20 +466,23 @@ namespace Echoa
 
         void BindDevice()
         {
+            if (pick.Selected != boundDev) SaveName();   // what was typed belongs to the device being left
             string id = pick.Selected;
             binding = true;
             try
             {
+                bool switched = id != boundDev;
+                boundDev = id;
                 bool has = id != null;
                 foreach (Control c in new Control[] { dName, dShow, dAuto, dFallback, dSteal, dCap, dTest, dDefault }) c.Visible = has;
                 capHint.Visible = has && !app.S.CapsOn;
-                if (!has) { dTitle.Text = "No output devices"; dWin.Text = ""; return; }
+                if (!has) { dName.Box.Text = ""; dTitle.Text = "No output devices"; dWin.Text = ""; return; }
                 var d = app.Snap.Devices.FirstOrDefault(x => x.Id == id);
                 var pr = app.S.Devices.TryGetValue(id, out var x0) ? x0 : new DevPrefs();
                 dTitle.Text = LabelFor(id);
                 string win = d != null ? (string.IsNullOrEmpty(d.Sub) ? d.WinName : d.WinName + " (" + d.Sub + ")") : pr.Label;
                 dWin.Text = (d == null ? "Not connected · " : "") + "Windows calls it " + win;
-                if (!dName.Box.Focused) dName.Box.Text = pr.Rename;
+                if (switched || !dName.Box.Focused) dName.Box.Text = pr.Rename;
                 Ux.Cue(dName.Box, d?.WinName ?? pr.Label);
                 dShow.On = !pr.Hidden;
                 dAuto.On = pr.AutoDefault;

@@ -54,10 +54,43 @@ namespace Echoa
             return p;
         }
 
+        public bool SaveBlocked;   // the file has content Echoa couldn't read: never replace it with defaults
+        int known;                 // settings recognized while parsing
+
         public static Settings Load()
         {
             MigrateFromSip();
-            return Parse(File.Exists(FilePath) ? SafeRead() : null);
+            var s = LoadFile(FilePath, out var error);
+            if (error != null) Log.Crash(error);
+            return s;
+        }
+
+        // antivirus or a sync tool can hold the file for a moment at sign-in, so try a few times
+        internal static Settings LoadFile(string path, out Exception error, int tries = 8, int waitMs = 250)
+        {
+            error = null;
+            if (!File.Exists(path)) return Parse(null);
+            for (int i = 1; ; i++)
+            {
+                try
+                {
+                    var lines = File.ReadAllLines(path, Encoding.UTF8);
+                    var s = Parse(lines);
+                    if (s.known == 0 && lines.Any(l => l.Trim().Length > 0 && !l.TrimStart().StartsWith(";"))) s.SaveBlocked = true;
+                    return s;
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    if (i >= tries)
+                    {
+                        error = ex;
+                        var s = Parse(new string[0]);
+                        s.SaveBlocked = true;
+                        return s;
+                    }
+                    System.Threading.Thread.Sleep(waitMs);
+                }
+            }
         }
 
         // Echoa used to be called Sip: bring its settings over once, and move "start with Windows" to the new name
@@ -81,8 +114,6 @@ namespace Echoa
             }
             catch { }
         }
-
-        static string[] SafeRead() { try { return File.ReadAllLines(FilePath, Encoding.UTF8); } catch { return new string[0]; } }
 
         public static Settings Parse(string[] lines)
         {
@@ -118,7 +149,9 @@ namespace Echoa
                                 if (wv.Length == 4 && int.TryParse(wv[0], out int wx) && int.TryParse(wv[1], out int wy) && int.TryParse(wv[2], out int ww) && int.TryParse(wv[3], out int wh))
                                 { s.WinX = wx; s.WinY = wy; s.WinW = ww; s.WinH = wh; }
                                 break;
+                            default: continue;
                         }
+                    s.known++;
                 }
                 catch { }
             }
@@ -184,15 +217,18 @@ namespace Echoa
 
         static string Clean(string s) => (s ?? "").Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
 
-        public void Save()
+        public void Save() => SaveTo(FilePath);
+
+        internal void SaveTo(string path)
         {
+            if (SaveBlocked) return;
             try
             {
-                Directory.CreateDirectory(Dir);
-                string tmp = FilePath + ".tmp";
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                string tmp = path + ".tmp";
                 File.WriteAllText(tmp, string.Join("\r\n", Serialize()) + "\r\n", Encoding.UTF8);
-                if (File.Exists(FilePath)) File.Replace(tmp, FilePath, null);
-                else File.Move(tmp, FilePath);
+                if (File.Exists(path)) File.Replace(tmp, path, null);
+                else File.Move(tmp, path);
             }
             catch (Exception ex) { Log.Crash(ex); }
         }

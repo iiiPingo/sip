@@ -138,6 +138,7 @@ namespace Echoa
                 S.Save();
                 tray.Balloon("Echoa is running", "Click the ring for your devices and apps. Scroll over it to change the volume.");
             }
+            if (S.SaveBlocked) tray.Balloon("Echoa couldn't read its settings", "Your settings file wasn't changed. Restart Echoa to load it again.");
         }
 
         static void Safe(Action a) { try { a(); } catch (Exception ex) { Log.Crash(ex); } }
@@ -530,17 +531,21 @@ namespace Echoa
             ShowMenu(m, screen);
         }
 
+        // every step runs even if an earlier one fails, so Exit, --exit and Minibar's Stop always finish
+        bool exiting;
         void Exit()
         {
-            panel.HidePanel();
-            main?.Close();
-            saveTimer.Stop();
-            mediaTimer.Stop();
-            MicTest(false);
-            S.Save();
-            media.Dispose();
-            engine.Dispose();
-            tray.Dispose();
+            if (exiting) return;
+            exiting = true;
+            Safe(panel.HidePanel);
+            Safe(() => main?.Close());
+            Safe(saveTimer.Stop);
+            Safe(mediaTimer.Stop);
+            Safe(() => MicTest(false));
+            Safe(S.Save);
+            Safe(media.Dispose);
+            Safe(engine.Dispose);
+            Safe(tray.Dispose);
             ExitThread();
         }
     }

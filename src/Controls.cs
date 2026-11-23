@@ -261,7 +261,24 @@ namespace Echoa
         protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if (!drag) return; drag = false; Capture = false; SetFromX(e.X, true); }
         protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hover = true; Invalidate(); }
         protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hover = false; Invalidate(); }
-        protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); if (!Enabled) return; Value = (float)Math.Round(val * 100 + Math.Sign(e.Delta) * 2) / 100f; Changed?.Invoke(true); }
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            if (!drag || Capture) return;   // Alt+Tab or a popup took the mouse mid-drag: keep the value and stop following it
+            drag = false;
+            Changed?.Invoke(true);
+            Invalidate();
+        }
+        readonly WheelSteps wheel = new WheelSteps();
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            if (!Enabled) return;
+            int notches = wheel.Take(this, e.Delta);
+            if (notches == 0) return;
+            Value = (float)Math.Round(val * 100 + notches * 2) / 100f;
+            Changed?.Invoke(true);
+        }
         protected override bool IsInputKey(Keys k) => k == Keys.Left || k == Keys.Right || base.IsInputKey(k);
         protected override void OnKeyDown(KeyEventArgs e)
         {
@@ -469,5 +486,26 @@ namespace Echoa
             owner.Invalidate(); owner.Update();
         }
         public void Dispose() { timer.Dispose(); }
+    }
+
+    // Turns wheel input into whole notches. A mouse sends 120 per notch; a touchpad sends many small
+    // amounts that add up to the same 120, so one finger movement can't jump the volume.
+    sealed class WheelSteps
+    {
+        const int Notch = 120, IdleMs = 500;
+        int acc, lastTick;
+        object target;
+
+        public int Take(object key, int delta)
+        {
+            int now = Environment.TickCount;
+            if (!Equals(key, target) || unchecked(now - lastTick) > IdleMs || (acc > 0 && delta < 0) || (acc < 0 && delta > 0)) acc = 0;
+            target = key;
+            lastTick = now;
+            acc += delta;
+            int notches = acc / Notch;
+            acc -= notches * Notch;
+            return notches;
+        }
     }
 }

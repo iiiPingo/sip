@@ -380,6 +380,27 @@ namespace Echoa
             if (!SuppressHide && Visible) HidePanel();
         }
 
+        // Alt+F4 (or any close request) only hides the flyout: this window lives as long as Echoa does.
+        // Echoa's own exit never closes it this way, so --exit and Minibar's Stop are not affected.
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            if (e.CloseReason == CloseReason.WindowsShutDown || e.CloseReason == CloseReason.ApplicationExitCall) return;
+            e.Cancel = true;
+            HidePanel();
+        }
+
+        // something took the mouse mid-drag: keep the value and stop dragging
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            if (drag == null || Capture) return;
+            ApplyDrag(dragX, true);
+            drag = null;
+            hover = null;
+            Invalidate();
+        }
+
         public void ModelChanged()
         {
             if (!Visible) return;
@@ -897,8 +918,12 @@ namespace Echoa
             Relayout();
         }
 
+        int dragX;
+        readonly WheelSteps wheel = new WheelSteps();
+
         void ApplyDrag(int mx, bool final)
         {
+            dragX = mx;
             var t = drag.Track;
             float v = (float)Math.Round(Math.Max(0, Math.Min(1, (mx - t.X) / t.Width)) * 100) / 100f;
             if (drag.App == null) host.DeviceVolume(drag.Dev, v, final);
@@ -909,11 +934,14 @@ namespace Echoa
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            int notches = e.Delta / 120;
-            if (notches == 0) notches = Math.Sign(e.Delta);
             if (picking) return;
             HitKey(e.Location, out var row);
-            if (row != null && row.K != RK.Empty) { Nudge(row, notches * host.S.ScrollStep); return; }
+            if (row != null && row.K != RK.Empty)
+            {
+                int notches = wheel.Take(row.Key, e.Delta);
+                if (notches != 0) Nudge(row, notches * host.S.ScrollStep);
+                return;
+            }
             if (contentH > viewH)
             {
                 // the real delta, so a touchpad scrolls by the pixel
