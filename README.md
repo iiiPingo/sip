@@ -18,10 +18,18 @@ EarTrumpet couldn't change the Windows default output, its device list was huge,
 - **Main window** with Inputs (default mic + mute), Devices (rename, rules, volume limits, test sound), Apps and Settings.
 - **Minimal mode arrow**: a small arrow on the main output folds the other outputs away (or back) with a smooth animation.
 - Accent colour picker, scroll on the tray icon to change volume.
-- No hotkeys, no background polling while the flyout is closed, never crashes the session (errors go to `crash.log`).
+- No hotkeys, almost no background work while the flyout is closed (one small audio service check every 5 seconds), and errors go to `crash.log`.
+
+## New in 1.7.2
+- Alt+F4 on the flyout no longer breaks the tray icon, Exit or Minibar's Stop.
+- Touchpad scrolling changes the volume at the normal speed.
+- Device names stay on the right device, and interrupted slider drags let go.
+- A locked or unreadable settings file is never replaced with defaults.
+- Echoa reconnects by itself when the Windows Audio service restarts.
+- The Inputs page scrolls, plus fixes for the flyout, tooltip, dropdown, window size and maximize.
 
 ## Install
-1. Download `Echoa-1.7.0.zip` from [Releases](../../releases/latest) and unzip it into its own folder.
+1. Download `Echoa-1.7.2.zip` from [Releases](../../releases/latest) and unzip it into its own folder.
 2. Run `Echoa.exe`. If SmartScreen warns, click **More info > Run anyway** (the exe is unsigned).
 
 Runs on Windows 10/11 with .NET Framework 4.8, which is already built in. Nothing to install.
