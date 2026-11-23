@@ -527,7 +527,9 @@ namespace Echoa
             p.AutoScroll = true;   // scrolls when the window is made small
             Ux.Dark(p);
             int y = S(64), w = p.Width;
-            Lbl(p, "Accent colour", 0, y, S(120), S(36), Theme.Text, fBody).TextAlign = ContentAlignment.MiddleLeft;
+            var accentLabel = Lbl(p, "Accent colour", 0, y, S(120), S(36), Theme.Text, fBody);
+            accentLabel.TextAlign = ContentAlignment.MiddleLeft;
+            accentLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left;   // fixed width: it sits on top of the swatches, so it must not stretch over them
             var sw = new SwatchRow(s) { Location = new Point(S(120), y), Width = w - S(120), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
             Theme.TryHex(app.S.Accent, out var cur);
             sw.Value = app.S.Accent.Length == 0 ? Theme.DefaultAccent : cur;

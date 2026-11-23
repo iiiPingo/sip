@@ -100,7 +100,7 @@ namespace Echoa
             if (Hint != null)
                 using (var f = Theme.Ui(8.75f))
                     TextRenderer.DrawText(g, Hint, f, new Rectangle(S(52), tr.Bottom, Width - S(52), Height - tr.Bottom), Theme.Dim,
-                        TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+                        TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);   // the row only has room for one line
         }
     }
 
@@ -405,7 +405,8 @@ namespace Echoa
             Cursor = Cursors.Hand;
             fIcon = new Font(Theme.IconFont, 10f);
         }
-        Rectangle Cell(int i) => new Rectangle(i * S(36), 0, S(36), S(36));
+        int CellW => Math.Max(1, Math.Min(S(36), Width / Count));   // swatches shrink to fit a narrow window
+        Rectangle Cell(int i) => new Rectangle(i * CellW, 0, CellW, S(36));
         int CustomIndex => Theme.Presets.Length;
         bool IsPreset => Array.Exists(Theme.Presets, p => p.ToArgb() == Value.ToArgb());
         protected override void OnPaint(PaintEventArgs e)
@@ -413,6 +414,7 @@ namespace Echoa
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(BackColor);
+            float k = CellW / (float)S(36);
             for (int i = 0; i < Count; i++)
             {
                 var c = Cell(i);
@@ -420,9 +422,9 @@ namespace Echoa
                 bool custom = i == CustomIndex;
                 Color col = custom ? (IsPreset ? Theme.Card : Value) : Theme.Presets[i];
                 bool sel = custom ? !IsPreset : Theme.Presets[i].ToArgb() == Value.ToArgb();
-                if (sel || i == hover) Theme.Disc(g, center, S(15), sel ? Theme.Text : Theme.Border);
-                Theme.Disc(g, center, S(13), BackColor);
-                Theme.Disc(g, center, S(11), col);
+                if (sel || i == hover) Theme.Disc(g, center, S(15) * k, sel ? Theme.Text : Theme.Border);
+                Theme.Disc(g, center, S(13) * k, BackColor);
+                Theme.Disc(g, center, S(11) * k, col);
                 if (custom && IsPreset) TextRenderer.DrawText(g, "\uE710", fIcon, c, Theme.Sub, Ux.C);   // Add
             }
         }
