@@ -20,6 +20,33 @@ namespace Echoa
         [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
         [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);
 
+        // ------------------------------------------------------------ Windows Audio service (read-only status)
+        [StructLayout(LayoutKind.Sequential)] struct SERVICE_STATUS_PROCESS { public int type, state, accepted, exitCode, specificExit, checkPoint, waitHint, processId, flags; }
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] static extern IntPtr OpenSCManager(string machine, string database, int access);
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] static extern IntPtr OpenService(IntPtr scm, string name, int access);
+        [DllImport("advapi32.dll")] static extern bool QueryServiceStatusEx(IntPtr service, int level, out SERVICE_STATUS_PROCESS status, int size, out int needed);
+        [DllImport("advapi32.dll")] static extern bool CloseServiceHandle(IntPtr h);
+
+        // the service's process id; 0 = not running; -1 = couldn't ask
+        public static int ServicePid(string name)
+        {
+            IntPtr scm = OpenSCManager(null, null, 1 /* SC_MANAGER_CONNECT */);
+            if (scm == IntPtr.Zero) return -1;
+            IntPtr svc = IntPtr.Zero;
+            try
+            {
+                svc = OpenService(scm, name, 4 /* SERVICE_QUERY_STATUS */);
+                if (svc == IntPtr.Zero) return -1;
+                if (!QueryServiceStatusEx(svc, 0, out var st, Marshal.SizeOf(typeof(SERVICE_STATUS_PROCESS)), out _)) return -1;
+                return st.state == 4 /* SERVICE_RUNNING */ ? st.processId : 0;
+            }
+            finally
+            {
+                if (svc != IntPtr.Zero) CloseServiceHandle(svc);
+                CloseServiceHandle(scm);
+            }
+        }
+
         [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
         [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; public Rectangle ToRect() => Rectangle.FromLTRB(Left, Top, Right, Bottom); }
 

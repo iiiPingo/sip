@@ -236,9 +236,28 @@ namespace Echoa
         static string B(bool b) => b ? "1" : "0";
 
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        // the exe in a Run value: "C:\path\Echoa.exe" --args
+        internal static string RunValuePath(string value)
+        {
+            string v = (value ?? "").Trim();
+            if (v.Length == 0) return null;
+            if (v[0] == '"') { int end = v.IndexOf('"', 1); return end > 1 ? v.Substring(1, end - 1) : null; }
+            int exe = v.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+            return exe > 0 ? v.Substring(0, exe + 4) : v;
+        }
+
+        // Same rule as Minibar: an entry pointing at a deleted copy starts nothing, so it counts as off.
+        // Echoa only writes the entry when you flip its toggle, so it can't fight Minibar over it.
+        internal static bool RunValueWorks(string value, Func<string, bool> exists)
+        {
+            if (value == null) return false;
+            string path = RunValuePath(value);
+            return path == null || exists(Environment.ExpandEnvironmentVariables(path));
+        }
+
         public static bool StartWithWindows
         {
-            get { try { using (var k = Registry.CurrentUser.OpenSubKey(RunKey)) return k?.GetValue("Echoa") != null; } catch { return false; } }
+            get { try { using (var k = Registry.CurrentUser.OpenSubKey(RunKey)) return RunValueWorks(k?.GetValue("Echoa") as string, File.Exists); } catch { return false; } }
             set
             {
                 try

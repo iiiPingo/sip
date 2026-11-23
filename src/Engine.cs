@@ -46,6 +46,11 @@ namespace Echoa
         DateTime expectUntil, prevChangedAt;
         bool disposed;
 
+        // Windows Audio restarting kills every audio object and callback, so check on it (one cheap query)
+        const int HealthMs = 5000;
+        Timer healthTimer;
+        int svcPid = -1, reconnects, brokenTries;
+
         // debounced refreshes
         readonly object dirtyGate = new object();
         readonly HashSet<string> dirtySessions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -64,13 +69,61 @@ namespace Echoa
 
         void Run()
         {
-            try { Init(); } catch (Exception ex) { Log.Crash(ex); }
+            try
+            {
+                svcPid = Native.ServicePid("Audiosrv");
+                Init();
+                if (devs.Count == 0) reconnects = 6;   // at sign-in the audio service may not be ready yet
+            }
+            catch (Exception ex) { Log.Crash(ex); reconnects = 6; }
+            healthTimer = new Timer(_ => Post(CheckAudio), null, HealthMs, HealthMs);
             foreach (var a in q.GetConsumingEnumerable())
             {
                 try { a(); }
                 catch (Exception ex) { Log.Crash(ex); }
             }
+            try { healthTimer.Dispose(); } catch { }
             try { Shutdown(); } catch { }
+        }
+
+        void CheckAudio()
+        {
+            int pid = Native.ServicePid("Audiosrv");
+            if (pid == 0) { svcPid = 0; return; }   // stopped: wait until it's back
+            if (pid > 0 && svcPid >= 0 && pid != svcPid) reconnects = 6;   // it restarted
+            if (pid > 0) svcPid = pid;
+            bool broken = DefaultBroken();
+            if (!broken) brokenTries = 0;
+            if (reconnects <= 0 && !(broken && brokenTries < 3)) return;
+            if (broken) brokenTries++;
+            try
+            {
+                Reconnect();
+                reconnects = devs.Count > 0 ? 0 : Math.Max(0, reconnects - 1);
+            }
+            catch (Exception ex) { Log.Crash(ex); reconnects = Math.Max(0, reconnects - 1); }
+        }
+
+        bool DefaultBroken()
+        {
+            if (defaultId == null || !devs.TryGetValue(defaultId, out var d) || d.Ep == null) return false;
+            try { return d.Ep.GetMasterVolumeLevelScalar(out float _) < 0; }
+            catch { return true; }
+        }
+
+        // start over with fresh audio objects; remembered settings live outside them
+        void Reconnect()
+        {
+            try { if (en != null && nc != null) en.UnregisterEndpointNotificationCallback(nc); } catch { }
+            foreach (var d in devs.Values) d.Close();
+            foreach (var d in ins.Values) d.Close();
+            devs.Clear();
+            ins.Clear();
+            lock (dirtyGate) { dirtyDevices = false; dirtySessions.Clear(); }
+            policy = null;
+            en = null;
+            nc = null;
+            Init();
         }
 
         void Post(Action a) { if (!disposed) try { q.Add(a); } catch { } }
@@ -85,7 +138,7 @@ namespace Echoa
             defaultId = GetDefaultId();
             defaultInId = GetDefaultId(EDataFlow.Capture);
             nc = new NotifyClient(this);
-            en.RegisterEndpointNotificationCallback(nc);
+            Marshal.ThrowExceptionForHR(en.RegisterEndpointNotificationCallback(nc));
             Publish();
         }
 
@@ -113,6 +166,8 @@ namespace Echoa
             if (d?.Ep == null) return;
             d.RampGen++;              // you moved it yourself: stop any ramp-up
             d.RampUntil = DateTime.MinValue;
+            d.RampTimer?.Dispose();
+            d.RampTimer = null;
             d.Ep.SetMasterVolumeLevelScalar(Clamp(v), ref Ctx);
         });
         public void SetDeviceMute(string id, bool m) => Post(() => { Any(id)?.Ep?.SetMute(m, ref Ctx); });
@@ -161,7 +216,17 @@ namespace Echoa
             if (policy == null) policy = (IPolicyConfig)new PolicyConfigClientCo();
             expectDefault = id;
             expectUntil = DateTime.UtcNow.AddSeconds(4);
-            for (int r = 0; r < 3; r++) policy.SetDefaultEndpoint(id, (ERole)r);
+            int failed = 0;
+            for (int r = 0; r < 3; r++)
+            {
+                int hr = policy.SetDefaultEndpoint(id, (ERole)r);
+                if (hr < 0) failed = hr;
+            }
+            if (failed < 0)
+            {
+                expectDefault = null;
+                Marshal.ThrowExceptionForHR(failed);   // the caller puts the UI back to what Windows really has
+            }
         }
 
         string GetDefaultId(EDataFlow flow = EDataFlow.Render)
@@ -179,7 +244,8 @@ namespace Echoa
         void SyncDevices(bool initial)
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (en.EnumAudioEndpoints(EDataFlow.Render, DeviceState.Active, out var coll) == 0 && coll != null)
+            // a failed listing says nothing about the devices: keep them instead of treating them as unplugged
+            if (en == null || en.EnumAudioEndpoints(EDataFlow.Render, DeviceState.Active, out var coll) != 0 || coll == null) return;
             {
                 coll.GetCount(out int n);
                 for (int i = 0; i < n; i++)
@@ -213,7 +279,7 @@ namespace Echoa
         void SyncInputs()
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (en.EnumAudioEndpoints(EDataFlow.Capture, DeviceState.Active, out var coll) == 0 && coll != null)
+            if (en == null || en.EnumAudioEndpoints(EDataFlow.Capture, DeviceState.Active, out var coll) != 0 || coll == null) return;
             {
                 coll.GetCount(out int n);
                 for (int i = 0; i < n; i++)
@@ -309,7 +375,9 @@ namespace Echoa
         {
             if (d.Ep == null) return;
             d.Ep.GetMasterVolumeLevelScalar(out float cur);
-            float target = DeviceMemoryOn && DeviceMemory.TryGetValue(d.Id, out float mem) ? mem : cur;
+            // already mid ramp: cur is only a step on the way, the real level is the old target
+            float target = DeviceMemoryOn && DeviceMemory.TryGetValue(d.Id, out float mem) ? mem
+                : DateTime.UtcNow < d.RampUntil ? d.RampTarget : cur;
             target = Math.Min(target, CapOf(d.Id));
             if (target < 0.04f) return;
             int gen = ++d.RampGen;
@@ -324,7 +392,8 @@ namespace Echoa
 
         void RampStep(Dev d, int gen)
         {
-            if (gen != d.RampGen || d.Ep == null || !devs.ContainsKey(d.Id)) { d.RampTimer?.Dispose(); d.RampTimer = null; return; }
+            if (gen != d.RampGen) return;   // a leftover tick from an older ramp: never touch the current one
+            if (d.Ep == null || !devs.ContainsKey(d.Id)) { d.RampTimer?.Dispose(); d.RampTimer = null; return; }
             double t = Math.Min(1, (DateTime.UtcNow - d.RampStart).TotalMilliseconds / 1200.0);
             double e = 1 - Math.Pow(1 - t, 2);
             d.RampNow = (float)(d.RampTarget * (0.25 + 0.75 * e));
@@ -480,7 +549,7 @@ namespace Echoa
             foreach (var d in devs.Values)
             {
                 var ds = new DevSnap { Id = d.Id, Name = d.Name, Sub = d.Sub, FormFactor = d.FormFactor, Bluetooth = d.Bluetooth };
-                try { d.Ep.GetMasterVolumeLevelScalar(out ds.Vol); d.Ep.GetMute(out ds.Muted); } catch { }
+                ReadVolume(d, ds);
                 foreach (var g in d.Sessions.Values.GroupBy(s => s.Info.Key))
                 {
                     AppSnap a = null;
@@ -503,11 +572,23 @@ namespace Echoa
             foreach (var d in ins.Values)
             {
                 var ds = new DevSnap { Id = d.Id, Name = d.Name, Sub = d.Sub, FormFactor = d.FormFactor, Bluetooth = d.Bluetooth, Input = true };
-                try { d.Ep.GetMasterVolumeLevelScalar(out ds.Vol); d.Ep.GetMute(out ds.Muted); } catch { }
+                ReadVolume(d, ds);
                 snap.Inputs.Add(ds);
             }
             snap.Inputs.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.CurrentCultureIgnoreCase));
             ToUi(() => sink.OnSnapshot(snap));
+        }
+
+        // a failed read leaves VolKnown false, so a made-up 0 is never shown or remembered
+        static void ReadVolume(Dev d, DevSnap ds)
+        {
+            try
+            {
+                ds.VolKnown = d.Ep.GetMasterVolumeLevelScalar(out float v) >= 0;
+                if (ds.VolKnown) ds.Vol = v;
+                if (d.Ep.GetMute(out bool m) >= 0) ds.Muted = m;
+            }
+            catch { ds.VolKnown = false; }
         }
 
         // ------------------------------------------------------------ live objects

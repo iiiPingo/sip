@@ -27,6 +27,7 @@ namespace Echoa
         public bool Input;      // a microphone
         public string WinName;  // the name Windows uses, before any rename
         public float Vol;
+        public bool VolKnown = true;   // false = Windows couldn't report it this time, so Vol is not real
         public bool Muted;
         public List<AppSnap> Apps = new List<AppSnap>();
     }

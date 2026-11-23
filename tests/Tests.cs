@@ -49,7 +49,7 @@ namespace Echoa
         public void SetAccent(Color c) { }
     }
 
-    static class Tests
+    static partial class Tests
     {
         const BindingFlags Any = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         static int passed, failed;
@@ -98,6 +98,7 @@ namespace Echoa
             UI("#4 flyout slider lets go when interrupted", DragFlyout);
             UI("#4 normal dragging still works", DragNormal);
 
+            RunBatch2();
             Console.WriteLine(passed + " passed, " + failed + " failed");
             return failed;
         }

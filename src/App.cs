@@ -85,6 +85,7 @@ namespace Echoa
         MainWindow main;
         int trayPct = -1;
         bool trayMuted, trayEmpty;
+        string trayTip;
         bool firstSnapshot = true;
 
         public App()
@@ -191,12 +192,15 @@ namespace Echoa
         public void OnSnapshot(Snapshot s)
         {
             ApplyNames(s);
+            // Windows couldn't report a volume this time: keep showing the last real one
+            foreach (var d in s.Devices.Concat(s.Inputs))
+                if (!d.VolKnown && FindDev(d.Id) is DevSnap old) { d.Vol = old.Vol; d.Muted = old.Muted; }
             Snap = s;
             bool dirty = false;
             foreach (var d in s.Devices)
             {
                 var p = S.Dev(d.Id);
-                if (S.VolumeMemory && p.Vol < 0) { p.Vol = d.Vol; engine.DeviceMemory[d.Id] = d.Vol; dirty = true; }
+                if (S.VolumeMemory && p.Vol < 0 && d.VolKnown) { p.Vol = d.Vol; engine.DeviceMemory[d.Id] = d.Vol; dirty = true; }
                 string label = Label(d);
                 if (p.Label != label) { p.Label = label; dirty = true; }
             }
@@ -405,9 +409,9 @@ namespace Echoa
             var d = Default;
             int pct = d == null ? 0 : (int)Math.Round(d.Vol * 100);
             bool muted = d != null && d.Muted, empty = d == null;
-            if (!force && pct == trayPct && muted == trayMuted && empty == trayEmpty) return;
-            trayPct = pct; trayMuted = muted; trayEmpty = empty;
             string tip = d == null ? "Echoa · no output device" : d.Name + " · " + (muted ? "muted" : pct + "%");
+            if (!force && pct == trayPct && muted == trayMuted && empty == trayEmpty && tip == trayTip) return;
+            trayPct = pct; trayMuted = muted; trayEmpty = empty; trayTip = tip;
             tray.Update(TrayArt.Render(pct / 100f, muted || empty, SystemInformation.SmallIconSize.Width), tip);
         }
 
