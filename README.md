@@ -48,4 +48,4 @@ The logo scripts live in the Minibar project notes; `src/echoa.ico` is the built
 C# WinForms on .NET Framework 4.8. Core Audio through COM (`IMMDeviceEnumerator`, `IAudioSessionManager2`, `IPolicyConfig` for the default device), all on one MTA worker thread. Its own `Shell_NotifyIcon` tray icon, and raw WinRT calls to the Global System Media Transport Controls for Now playing.
 
 ## License
-MIT
+PolyForm Noncommercial License 1.0.0: free to use, copy and change for non-commercial purposes, not for selling or other commercial use. See `LICENSE`.
