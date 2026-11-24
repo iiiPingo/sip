@@ -6,6 +6,7 @@ Volume mixer for the Windows tray (replaces EarTrumpet). C# WinForms, .NET Frame
 - `cd src && dotnet build -c Release`. On Linux it builds against Mono's reference assemblies (`mono-devel`).
 - Version lives in `src/Echoa.csproj` (`<Version>`). Bump it every release; Minibar compares it with the GitHub tag.
 - Release asset: `Echoa-x.y.z.zip` containing `Echoa/Echoa.exe`, `Echoa.exe.config`, `README.txt`.
+- Tests: build `tests/EchoaTests.csproj` with `dotnet build -c Release`, then run `EchoaTests.exe` (mono on Linux). They never touch the real settings.
 - Settings: `%APPDATA%\Echoa\settings.ini`. Errors go to `crash.log` there. Never touch these in code or commits.
 
 ## Gotchas
@@ -15,6 +16,9 @@ Volume mixer for the Windows tray (replaces EarTrumpet). C# WinForms, .NET Frame
 - `TextRenderer.MeasureText` with EndEllipsis + `Size.Empty` collapses on real Windows. Use `NoPrefix | SingleLine | NoPadding`.
 - Own `Shell_NotifyIcon` (version 4) instead of `NotifyIcon`, for Win+B/Enter, scroll and TaskbarCreated re-add.
 - `Echoa.exe --exit` closes it cleanly (window message `Echoa.Exit.v1`). Minibar's Stop and updates rely on it. Keep it working.
+- Alt+F4 on the flyout only hides it. Exit runs every step even if one fails, so the tray icon, `--exit` and Minibar's Stop keep working.
+- A locked or unreadable `settings.ini` is never replaced with defaults.
+- Echoa reconnects by itself when the Windows Audio service restarts (one small service check every 5 seconds). Keep idle work that small.
 - Logo scripts are not in this repo; `src/echoa.ico` is the built icon.
 
 ## Releasing
